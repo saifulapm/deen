@@ -32,17 +32,30 @@ pub struct Surah {
 pub struct Ayah {
     pub s: u16,
     pub a: u16,
-    /// Uthmani script, fully vowelled.
+    /// Uthmani script, fully vowelled — Tanzil's, and it has to be: see
+    /// `scripts/fetch-data` for the two things that index into it.
     pub ar: String,
     /// Bangla — Muhiuddin Khan.
     pub bn: String,
     /// English — Sahih International.
     pub en: String,
+    /// Tajweed spans as `[start, end, rule_index]` over `ar`'s codepoints,
+    /// indexing into `Quran::rules`.
+    #[serde(default)]
+    pub taj: Vec<[usize; 3]>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Quran {
     pub surahs: Vec<Surah>,
+    /// The tajweed rule names `Ayah::taj` indexes into.
+    #[serde(default)]
+    pub rules: Vec<String>,
+    /// The Basmala, carried once. It heads every surah but Al-Fatiha (where it
+    /// is ayah 1) and At-Tawbah (which has none), and `scripts/fetch-data`
+    /// strips it out of those ayat so it is not counted as part of them.
+    #[serde(default)]
+    pub basmala: String,
     pub ayahs: Vec<Ayah>,
 }
 

@@ -12,14 +12,16 @@
 
 use std::{path::PathBuf, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
 mod align;
+mod audio;
 mod data;
 mod normalise;
 mod recite;
+mod words;
 
 #[derive(Parser)]
 #[command(name = "deen", version, about, long_about = None)]
@@ -34,6 +36,17 @@ enum Cmd {
     Api {
         #[command(subcommand)]
         what: ApiCmd,
+    },
+    /// Fetch recitation audio and print where it landed.
+    ///
+    /// Caches under ~/.cache/deen/audio, so the second tap on a word is
+    /// instant and works offline.
+    Audio {
+        /// `1:1:1` for one word, `1:1` for a whole ayah.
+        reference: String,
+        /// everyayah.com reciter directory, for whole-ayah audio.
+        #[arg(long, default_value = audio::DEFAULT_RECITER)]
+        reciter: String,
     },
     /// Recite an ayah and be told which words were right.
     ///
@@ -78,6 +91,7 @@ fn main() {
 fn run() -> Result<()> {
     match Cli::parse().command {
         Cmd::Api { what } => api(what),
+        Cmd::Audio { reference, reciter } => do_audio(&reference, &reciter),
         Cmd::Recite {
             ayah,
             wav,
@@ -90,16 +104,60 @@ fn api(what: ApiCmd) -> Result<()> {
     let quran = data::Quran::load()?;
     let out = match what {
         ApiCmd::Surahs => json!({ "surahs": quran.surahs }),
-        ApiCmd::Surah { n } => json!({
-            "surah": quran.surah(n)?,
-            "ayahs": quran.ayat_of(n),
-        }),
+        ApiCmd::Surah { n } => {
+            // Words come with the surah rather than one `api ayah` per row:
+            // a reader shows every ayah at once, and Al-Baqarah would
+            // otherwise be 286 processes to paint one screen.
+            let ayahs = quran.ayat_of(n);
+            let words: Vec<_> = ayahs
+                .iter()
+                .map(|a| words::split(a.s, a.a, &a.ar, &a.taj, &quran.rules))
+                .collect();
+            json!({
+                "surah": quran.surah(n)?,
+                "ayahs": ayahs,
+                "words": words,
+                // Al-Fatiha opens with it as ayah 1 and At-Tawbah has none, so
+                // those two are the only surahs a reader must not head with it.
+                "basmala": if n == 1 || n == 9 { "" } else { &quran.basmala },
+            })
+        }
         ApiCmd::Ayah { reference } => {
             let (s, a) = data::parse_ref(&reference)?;
-            json!({ "ayah": quran.ayah(s, a)? })
+            let ayah = quran.ayah(s, a)?;
+            json!({
+                "ayah": ayah,
+                // Words carry the audio key and the tajweed runs, so a reader
+                // never has to re-split the text and risk disagreeing with the
+                // CDN about which word is the fifth one.
+                "words": words::split(s, a, &ayah.ar, &ayah.taj, &quran.rules),
+            })
         }
     };
     println!("{out}");
+    Ok(())
+}
+
+fn do_audio(reference: &str, reciter: &str) -> Result<()> {
+    // `1:1:1` is a word, `1:1` is an ayah — the third field is the only thing
+    // that distinguishes them, and it is the word's audio key.
+    let parts: Vec<&str> = reference.split(':').collect();
+    let path = match parts.len() {
+        3 => {
+            let (s, a) = data::parse_ref(&parts[..2].join(":"))?;
+            let w: usize = parts[2]
+                .trim()
+                .parse()
+                .with_context(|| format!("bad word number in {reference:?}"))?;
+            audio::word(s, a, w)?
+        }
+        2 => {
+            let (s, a) = data::parse_ref(reference)?;
+            audio::ayah(s, a, reciter)?
+        }
+        _ => anyhow::bail!("expected 1:1 for an ayah or 1:1:1 for a word, got {reference:?}"),
+    };
+    println!("{}", json!({ "path": path.to_string_lossy() }));
     Ok(())
 }
 
