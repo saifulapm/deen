@@ -18,6 +18,7 @@ use serde_json::json;
 
 mod align;
 mod audio;
+mod daily;
 mod data;
 mod duas;
 mod hadith;
@@ -151,6 +152,13 @@ enum ApiCmd {
     Surah { n: u16 },
     /// One ayah.
     Ayah { reference: String },
+    /// Today's ayah and today's narration, chosen by the date.
+    Daily {
+        /// Your LOCAL date as YYYY-MM-DD. Without it the day is UTC's, which
+        /// rolls over at a strange hour east of Greenwich.
+        #[arg(long)]
+        date: Option<String>,
+    },
 }
 
 fn main() {
@@ -199,6 +207,30 @@ fn api(what: ApiCmd) -> Result<()> {
                 // Al-Fatiha opens with it as ayah 1 and At-Tawbah has none, so
                 // those two are the only surahs a reader must not head with it.
                 "basmala": if n == 1 || n == 9 { "" } else { &quran.basmala },
+            })
+        }
+        ApiCmd::Daily { date } => {
+            let date = date.unwrap_or_else(daily::utc_today);
+            let day = daily::day_number(&date)?;
+
+            let ayah = &quran.ayahs[daily::index_for(day, quran.ayahs.len())];
+            // THE DAILY NARRATION COMES FROM THE TWO SAHIHS ONLY. Search reaches
+            // the whole corpus because you went looking for something; a
+            // narration that arrives unasked, on the day's page, should not be
+            // one the reader has to weigh a grading dispute about.
+            const DAILY_BOOKS: [&str; 2] = ["bukhari", "muslim"];
+            let hadith = hadith::count_of(&DAILY_BOOKS)
+                .and_then(|n| hadith::nth(&DAILY_BOOKS, daily::index_for(day, n)))
+                .ok();
+
+            json!({
+                "date": date,
+                "ayah": ayah,
+                "surah": quran.surah(ayah.s)?,
+                // Absent rather than fatal: a machine part-way through the
+                // install has the Quran and not yet the corpus, and half a page
+                // is better than an error where an ayah could have been.
+                "hadith": hadith,
             })
         }
         ApiCmd::Ayah { reference } => {

@@ -50,6 +50,20 @@ scholar who gave them** — the graders disagree, and a verdict without its auth
 is an opinion pretending to be a fact — and every result carries the sunnah.com
 URL that settles it.
 
+And it answers the day, for a landing page to draw:
+
+```console
+$ deen api daily --date 2026-09-05 | jq -r '"\(.ayah.s):\(.ayah.a)  \(.hadith.collection):\(.hadith.hadith.n)"'
+11:9  muslim:5465
+```
+
+The pair is a pure function of the date, so every machine shows the same one —
+selection, never generation. Pass your LOCAL date; without it the day is UTC's,
+which turns over at a strange hour east of Greenwich. The daily narration is
+drawn from Bukhari and Muslim only: search reaches the whole corpus because you
+went looking, but one that arrives unasked should not be one you have to weigh a
+grading dispute about.
+
 ## What it does and does not check
 
 **It checks that you said the right words, in the right order.** Wrong words,

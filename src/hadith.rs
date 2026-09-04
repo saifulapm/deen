@@ -216,6 +216,40 @@ fn terms_of(query: &str, script: &Script) -> Vec<String> {
     raw.into_iter().filter(|t| !t.is_empty()).collect()
 }
 
+/// The nth narration across the given collections, in the order they are named.
+///
+/// For the daily pick, and it reads one line rather than a file: the count is in
+/// the manifest, so which collection holds `index` is arithmetic, and the line
+/// is taken by position without parsing the ones before it.
+pub fn nth(slugs: &[&str], index: usize) -> Result<Hit> {
+    let m = manifest()?;
+    let mut remaining = index;
+    for slug in slugs {
+        let c = m.collection(slug)?;
+        if remaining >= c.hadiths {
+            remaining -= c.hadiths;
+            continue;
+        }
+        let path = dir().join(format!("{slug}.jsonl"));
+        let file = File::open(&path).with_context(|| format!("cannot read {}", path.display()))?;
+        let line = BufReader::new(file)
+            .lines()
+            .nth(remaining)
+            .transpose()?
+            .ok_or_else(|| anyhow!("{slug} has fewer than {} lines", remaining + 1))?;
+        let h: Hadith = serde_json::from_str(&line)
+            .with_context(|| format!("line {} of {slug} is malformed", remaining + 1))?;
+        return Ok(c.hit(h));
+    }
+    bail!("index {index} is past the end of {}", slugs.join(", "))
+}
+
+/// How many narrations those collections hold between them.
+pub fn count_of(slugs: &[&str]) -> Result<usize> {
+    let m = manifest()?;
+    slugs.iter().map(|s| m.collection(s).map(|c| c.hadiths)).sum()
+}
+
 /// One hadith by collection and number: `bukhari:5010`.
 pub fn show(slug: &str, n: &str) -> Result<Hit> {
     let m = manifest()?;
