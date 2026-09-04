@@ -40,6 +40,29 @@ pub fn word(raw: &str) -> String {
         .collect()
 }
 
+/// A whole phrase reduced for matching, spaces and all.
+///
+/// `word` is the unit the recitation checker compares and it drops everything
+/// between words; searching a corpus is a substring question, so this keeps one
+/// space where the text had any run of them and drops punctuation, which is how
+/// a phrase typed without harakat finds the vowelled text it came from.
+pub fn phrase(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut pending_space = false;
+    for c in text.chars().filter(|&c| !is_mark(c)).map(fold) {
+        if c.is_whitespace() {
+            pending_space = !out.is_empty();
+        } else if c.is_alphanumeric() {
+            if pending_space {
+                out.push(' ');
+                pending_space = false;
+            }
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Split into (original, normalised) pairs, dropping tokens that normalise
 /// away. The original is kept so the UI can render the vowelled word it is
 /// talking about rather than the stripped one used for matching.

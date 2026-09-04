@@ -35,6 +35,21 @@ al-Muslim (Sa'id bin Ali bin Wahf Al-Qahtani); `scripts/fetch-duas` installs
 them only if two independently fetched copies of the page agree field for
 field, and refuses to install anything if they do not.
 
+And it searches the hadith corpus — ten collections, 36,512 narrations, in
+Arabic, English and Bangla, entirely offline:
+
+```console
+$ deen hadith search "seeking forgiveness" --limit 1 | jq -r '.hits[0] | .collection, .url'
+abudawud
+https://sunnah.com/abudawud:3098
+```
+
+Every word of the query has to appear; quote it to demand the exact phrase. The
+script you type in picks the language. **Grades are kept under the name of the
+scholar who gave them** — the graders disagree, and a verdict without its author
+is an opinion pretending to be a fact — and every result carries the sunnah.com
+URL that settles it.
+
 ## What it does and does not check
 
 **It checks that you said the right words, in the right order.** Wrong words,
@@ -75,6 +90,10 @@ deen-fetch-data > ~/.local/share/deen/quran.json   # see scripts/fetch-data
 # archive of the same page. Also fetched once.
 scripts/fetch-duas > ~/.local/share/deen/duas.json
 
+# The hadith corpus: ten collections in three languages, from a pinned commit
+# of fawazahmed0/hadith-api (Unlicense). 104 MB, a few minutes, once.
+scripts/fetch-hadith ~/.local/share/deen/hadith
+
 # The model: Tarteel's Quran fine-tune of whisper-base, q8_0.
 curl -fL -o /tmp/q.bin https://huggingface.co/ram-a-dhan/tarteel-whisper-quran-ggml/resolve/main/tarteel-ai-whisper-base-ar-quran-ggml-q8_0.bin
 ```
@@ -98,6 +117,7 @@ Environment overrides, all optional:
 |---|---|
 | `DEEN_DATA` | the Quran JSON (default `~/.local/share/deen/quran.json`) |
 | `DEEN_DUAS` | the duas JSON (default `~/.local/share/deen/duas.json`) |
+| `DEEN_HADITH` | the hadith corpus directory (default `~/.local/share/deen/hadith`) |
 | `DEEN_MODEL` | the ggml model (default `~/.local/share/voxtype/models/ggml-quran-base-q8.bin`) |
 
 `deen` writes its own voxtype config to `~/.cache/deen/whisper.toml` and

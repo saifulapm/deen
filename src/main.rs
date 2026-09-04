@@ -20,6 +20,7 @@ mod align;
 mod audio;
 mod data;
 mod duas;
+mod hadith;
 mod hifz;
 mod normalise;
 mod recite;
@@ -55,6 +56,11 @@ enum Cmd {
         #[command(subcommand)]
         what: DuaCmd,
     },
+    /// The hadith corpus: find a narration, or show one by its number.
+    Hadith {
+        #[command(subcommand)]
+        what: HadithCmd,
+    },
     /// Memorisation: what is due, and how it went.
     Hifz {
         #[command(subcommand)]
@@ -89,6 +95,29 @@ enum DuaCmd {
     List,
     /// One dua by the book's own number, e.g. `27` or `75a`.
     Show { id: String },
+}
+
+#[derive(Subcommand)]
+enum HadithCmd {
+    /// The collections, with their section titles and what each one carries.
+    ///
+    /// There is no `list` beside it and there will not be: 36,000 narrations
+    /// is past the size where a screen can be handed the whole book, which is
+    /// the pattern `dua list` uses and this one cannot.
+    Collections,
+    /// Search the corpus. The script you type in picks the language.
+    Search {
+        /// Words, unquoted — they are joined back into one phrase.
+        #[arg(required = true, num_args = 1..)]
+        query: Vec<String>,
+        /// Restrict to one collection, e.g. `bukhari`.
+        #[arg(long)]
+        collection: Option<String>,
+        #[arg(long, default_value_t = 40)]
+        limit: usize,
+    },
+    /// One narration: `bukhari:5010`.
+    Show { reference: String },
 }
 
 #[derive(Subcommand)]
@@ -140,6 +169,7 @@ fn run() -> Result<()> {
         Cmd::Api { what } => api(what),
         Cmd::Audio { reference, reciter } => do_audio(&reference, &reciter),
         Cmd::Dua { what } => do_dua(what),
+        Cmd::Hadith { what } => do_hadith(what),
         Cmd::Hifz { what } => do_hifz(what),
         Cmd::Recite {
             ayah,
@@ -198,6 +228,26 @@ fn do_dua(what: DuaCmd) -> Result<()> {
             "duas": book.duas,
         }),
         DuaCmd::Show { id } => json!({ "source": book.source, "dua": book.dua(&id)? }),
+    };
+    println!("{out}");
+    Ok(())
+}
+
+fn do_hadith(what: HadithCmd) -> Result<()> {
+    let out = match what {
+        HadithCmd::Collections => {
+            let m = hadith::manifest()?;
+            json!({ "source": m.source, "collections": m.collections })
+        }
+        HadithCmd::Search {
+            query,
+            collection,
+            limit,
+        } => serde_json::to_value(hadith::search(&query.join(" "), collection.as_deref(), limit)?)?,
+        HadithCmd::Show { reference } => {
+            let (slug, n) = hadith::parse_ref(&reference)?;
+            json!({ "hit": hadith::show(&slug, &n)? })
+        }
     };
     println!("{out}");
     Ok(())
