@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Build deen's Quran data file and write it to stdout.
+#
+# Three editions from alquran.cloud, combined into one object: Uthmani script,
+# Muhiuddin Khan's Bangla, and Sahih International's English. Run once — the
+# text does not change, nothing refreshes it, and every deen command works
+# offline afterwards.
+#
+#   scripts/fetch-data > ~/.local/share/deen/quran.json
+set -euo pipefail
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+for ed in quran-uthmani bn.bengali en.sahih; do
+  curl -fsSL --max-time 120 "https://api.alquran.cloud/v1/quran/$ed" -o "$tmp/$ed.json"
+  # A truncated download is JSON-shaped for a while before it is not; check the
+  # ayah count rather than the parse, or a half file becomes a half Quran.
+  n=$(jq '[.data.surahs[].ayahs[]] | length' "$tmp/$ed.json")
+  [ "$n" -eq 6236 ] || {
+    echo "fetch-data: $ed returned $n ayahs, expected 6236" >&2
+    exit 1
+  }
+done
+
+jq -n -c \
+  --slurpfile ar "$tmp/quran-uthmani.json" \
+  --slurpfile bn "$tmp/bn.bengali.json" \
+  --slurpfile en "$tmp/en.sahih.json" '
+  def flat: [.data.surahs[] as $s | $s.ayahs[] | {s: $s.number, a: .numberInSurah, t: .text}];
+  ($ar[0] | flat) as $A | ($bn[0] | flat) as $B | ($en[0] | flat) as $E |
+  {
+    surahs: [$ar[0].data.surahs[] | {
+      n: .number, ar: .name, en: .englishName,
+      tr: .englishNameTranslation, count: (.ayahs | length), type: .revelationType
+    }],
+    # The upstream Uthmani text carries a BOM on 1:1 and it would otherwise
+    # ride into the first word of the Quran.
+    ayahs: [range(0; $A | length) | . as $i | {
+      s: $A[$i].s, a: $A[$i].a,
+      ar: ($A[$i].t | sub("^﻿"; "")),
+      bn: $B[$i].t, en: $E[$i].t
+    }]
+  }'
