@@ -19,6 +19,22 @@ Every command answers with exactly one JSON object on stdout and puts
 diagnostics on stderr, so a caller can parse stdout blind. That is what lets a
 GUI be a front end for this binary and nothing else.
 
+It also carries the day's adhkar, because a tool for rebuilding a practice is
+not only about the Quran:
+
+```console
+$ deen dua show 27 | jq -r '.dua | .tr, .en, .ref'
+Allāhumma bā'id baynī wa bayna khatāyāya…
+O Allah, separate me from my sins as You have separated the East from the West…
+Al-Bukhari 1/181, Muslim 1/419.
+```
+
+**Every dua comes with the reference the book prints beneath it, and nothing
+here writes religious content.** The 268 duas in 132 chapters are Hisn
+al-Muslim (Sa'id bin Ali bin Wahf Al-Qahtani); `scripts/fetch-duas` installs
+them only if two independently fetched copies of the page agree field for
+field, and refuses to install anything if they do not.
+
 ## What it does and does not check
 
 **It checks that you said the right words, in the right order.** Wrong words,
@@ -55,6 +71,10 @@ Then the data and the model:
 mkdir -p ~/.local/share/deen
 deen-fetch-data > ~/.local/share/deen/quran.json   # see scripts/fetch-data
 
+# The duas: Hisn al-Muslim, from sunnah.com, cross-checked against a pinned
+# archive of the same page. Also fetched once.
+scripts/fetch-duas > ~/.local/share/deen/duas.json
+
 # The model: Tarteel's Quran fine-tune of whisper-base, q8_0.
 curl -fL -o /tmp/q.bin https://huggingface.co/ram-a-dhan/tarteel-whisper-quran-ggml/resolve/main/tarteel-ai-whisper-base-ar-quran-ggml-q8_0.bin
 ```
@@ -77,6 +97,7 @@ Environment overrides, all optional:
 | | |
 |---|---|
 | `DEEN_DATA` | the Quran JSON (default `~/.local/share/deen/quran.json`) |
+| `DEEN_DUAS` | the duas JSON (default `~/.local/share/deen/duas.json`) |
 | `DEEN_MODEL` | the ggml model (default `~/.local/share/voxtype/models/ggml-quran-base-q8.bin`) |
 
 `deen` writes its own voxtype config to `~/.cache/deen/whisper.toml` and

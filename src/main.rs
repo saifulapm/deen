@@ -19,6 +19,7 @@ use serde_json::json;
 mod align;
 mod audio;
 mod data;
+mod duas;
 mod hifz;
 mod normalise;
 mod recite;
@@ -43,11 +44,16 @@ enum Cmd {
     /// Caches under ~/.cache/deen/audio, so the second tap on a word is
     /// instant and works offline.
     Audio {
-        /// `1:1:1` for one word, `1:1` for a whole ayah.
+        /// `1:1:1` for one word, `1:1` for a whole ayah, `dua:75` for a dua.
         reference: String,
         /// everyayah.com reciter directory, for whole-ayah audio.
         #[arg(long, default_value = audio::DEFAULT_RECITER)]
         reciter: String,
+    },
+    /// Daily adhkar, from Hisn al-Muslim, each with the book's reference.
+    Dua {
+        #[command(subcommand)]
+        what: DuaCmd,
     },
     /// Memorisation: what is due, and how it went.
     Hifz {
@@ -71,6 +77,18 @@ enum Cmd {
         #[arg(long, default_value_t = 120)]
         max_seconds: u64,
     },
+}
+
+#[derive(Subcommand)]
+enum DuaCmd {
+    /// The whole book: where it came from, its 132 chapters, its 268 duas.
+    ///
+    /// One call rather than one per chapter, for the reason `api surah` sends
+    /// the words with the ayat: a screen that browses this shows a chapter the
+    /// moment it is picked, and 250 KB read once beats a process per tap.
+    List,
+    /// One dua by the book's own number, e.g. `27` or `75a`.
+    Show { id: String },
 }
 
 #[derive(Subcommand)]
@@ -121,6 +139,7 @@ fn run() -> Result<()> {
     match Cli::parse().command {
         Cmd::Api { what } => api(what),
         Cmd::Audio { reference, reciter } => do_audio(&reference, &reciter),
+        Cmd::Dua { what } => do_dua(what),
         Cmd::Hifz { what } => do_hifz(what),
         Cmd::Recite {
             ayah,
@@ -163,6 +182,22 @@ fn api(what: ApiCmd) -> Result<()> {
                 "words": words::split(s, a, &ayah.ar, &ayah.taj, &quran.rules),
             })
         }
+    };
+    println!("{out}");
+    Ok(())
+}
+
+fn do_dua(what: DuaCmd) -> Result<()> {
+    let book = duas::Book::load()?;
+    // The source travels with the content, always — a dua on a screen without
+    // the book it is from is this project asserting, which it does not do.
+    let out = match what {
+        DuaCmd::List => json!({
+            "source": book.source,
+            "chapters": book.chapters,
+            "duas": book.duas,
+        }),
+        DuaCmd::Show { id } => json!({ "source": book.source, "dua": book.dua(&id)? }),
     };
     println!("{out}");
     Ok(())
@@ -242,6 +277,20 @@ fn do_hifz(what: HifzCmd) -> Result<()> {
 }
 
 fn do_audio(reference: &str, reciter: &str) -> Result<()> {
+    // A dua is asked for by name because its key is a position in the book,
+    // not a coordinate: `dua:75a` has no second number to parse.
+    if let Some(id) = reference.strip_prefix("dua:") {
+        let book = duas::Book::load()?;
+        let dua = book.dua(id)?;
+        let key = dua
+            .audio
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("no recitation is matched to dua {id} — it has none rather than a guessed one"))?;
+        let path = audio::dua(key)?;
+        println!("{}", json!({ "path": path.to_string_lossy() }));
+        return Ok(());
+    }
+
     // `1:1:1` is a word, `1:1` is an ayah — the third field is the only thing
     // that distinguishes them, and it is the word's audio key.
     let parts: Vec<&str> = reference.split(':').collect();

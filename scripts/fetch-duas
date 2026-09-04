@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# Build deen's dua file and write it to stdout. Run once, like fetch-data — a
+# book from 1989 does not change either.
+#
+#   scripts/fetch-duas > ~/.local/share/deen/duas.json
+#
+# THE CONTENT IS HISN AL-MUSLIM AND NONE OF IT IS WRITTEN HERE. Every dua
+# arrives with the book's own reference footnote attached and is shown with it;
+# nothing in this project gets to assert what the Prophet ﷺ said. That rule is
+# why two of the obvious datasets were rejected: one carries a `confidence`
+# field that is really just "which book is named" wearing a grading's clothes,
+# and the other is a raw hadith corpus, where CHOOSING which hadiths are the
+# morning adhkar would be this repo authoring religious content.
+#
+# TWO COPIES OF THE SAME PAGE MUST AGREE, or this exits non-zero and installs
+# nothing. sunnah.com/hisn is fetched live, and majmoo-io's archive of that same
+# page — pinned to a commit — is fetched beside it; the parser runs over both
+# and every field of all 268 duas has to match. A silent change to somebody
+# else's markup is exactly the failure this cannot afford, since nobody reading
+# a dua on screen can tell that the reference beneath it drifted.
+#
+# Counts and audio come from a third dataset (MIT) joined on the Arabic text.
+# It has no references at all, so it is never a source of content — only of
+# "say this three times" and an mp3 to hear it in. It joins ~92% of the duas;
+# the rest simply show without a count or a play button rather than being
+# guessed at.
+#
+# sunnah.com answers 403 to a bare curl and 200 to a browser User-Agent. That is
+# a rate-limiting rule on a public page, not a paywall or a login: the same
+# bytes a browser gets, fetched once per machine, for a book whose whole purpose
+# is to be recited.
+set -euo pipefail
+
+# Pinned, because "the archive we checked against" has to mean one thing.
+ARCHIVE_SHA=8786672f2a89115f13d5a27765066378993bd358
+COUNTS_SHA=d793023e3b69c91674023f692425950c8ebbb64d
+UA='Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36'
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+curl -fsSL --max-time 300 -A "$UA" -o "$tmp/live.html" "https://sunnah.com/hisn"
+curl -fsSL --max-time 300 -o "$tmp/archive.html" \
+  "https://raw.githubusercontent.com/majmoo-io/hisnu-al-muslim-data/$ARCHIVE_SHA/packages/helpers/scripts/sunnah-com-hisnu-al-muslim.html"
+curl -fsSL --max-time 300 -o "$tmp/counts.json" \
+  "https://raw.githubusercontent.com/YousefAsalya/Islamic-Pro-azkar-API/$COUNTS_SHA/data/ar.json"
+
+python3 - "$tmp" "$ARCHIVE_SHA" "$COUNTS_SHA" <<'PY'
+import difflib, json, re, sys, unicodedata
+
+tmp, archive_sha, counts_sha = sys.argv[1], sys.argv[2], sys.argv[3]
+
+ITEM = re.compile(r'<div class="actualHadithContainer hadith_container_hisn".*?<!-- End hadith -->', re.S)
+CHAPTER = re.compile(r'<div class=echapno>\((\d+)\)</div><div class=englishchapter>(.*?)</div>\s*'
+                     r'<div class=achapno>\(\d+\)</div>\s*'
+                     r'<div class="arabicchapter arabic">(.*?)</div>', re.S)
+STICKY = re.compile(r'hadith_reference_sticky">\s*Hisn al-Muslim\s*([0-9]+[a-z]?)\s*<')
+
+def text(html):
+    return " ".join(re.sub(r"<[^>]+>", " ", html).split())
+
+def span(block, cls):
+    m = re.search(rf'<span class="{cls}[^"]*"[^>]*>(.*?)</span>', block, re.S)
+    return text(m.group(1)) if m else ""
+
+def arabic(block):
+    # Most items put the Arabic in an inner span; nine of the 268 put it
+    # straight in the div, so the div is a fallback rather than nine holes.
+    parts = [text(x) for x in re.findall(
+        r'<span class="arabic_text_details arabic"[^>]*>(.*?)</span>', block, re.S)]
+    parts = [p for p in parts if p]
+    if parts:
+        return " ".join(parts)
+    m = re.search(r'<div class="arabic_hadith_full arabic"[^>]*>(.*?)</div>', block, re.S)
+    return text(m.group(1)) if m else ""
+
+def parse(html):
+    """The chapters in order, and the duas under each in document order.
+
+    A chapter heading owns every item until the next heading — the page has no
+    containing element to read it off, so position IS the relationship."""
+    chapters, duas = [], []
+    marks = [(m.start(), m) for m in CHAPTER.finditer(html)]
+    for i, (pos, m) in enumerate(marks):
+        end = marks[i + 1][0] if i + 1 < len(marks) else len(html)
+        n = int(m.group(1))
+        # All 132 titles are printed as "Chapter: When waking up". The word is
+        # the page's scaffolding, not part of the title, and it would be the
+        # first thing on every row of a chapter list.
+        chapters.append({
+            "n": n,
+            "en": re.sub(r"^Chapter:\s*", "", text(m.group(2))),
+            "ar": text(m.group(3)),
+        })
+        for block in ITEM.findall(html[pos:end]):
+            sticky = STICKY.search(block)
+            duas.append({
+                # The book's own number, and a string because a few are
+                # lettered (75a): it is a citation, not an index.
+                "id": sticky.group(1) if sticky else "",
+                "chapter": n,
+                "ar": arabic(block),
+                "tr": span(block, "transliteration"),
+                "en": span(block, "translation"),
+                "ref": span(block, "hisn_english_reference"),
+            })
+    return chapters, duas
+
+live_chapters, live_duas = parse(open(f"{tmp}/live.html", encoding="utf-8", errors="replace").read())
+arch_chapters, arch_duas = parse(open(f"{tmp}/archive.html", encoding="utf-8", errors="replace").read())
+
+# THE CROSS-CHECK. Two copies of the page, fetched from different hosts months
+# apart, parsed by the same code: identical or nothing installs.
+if live_duas != arch_duas or live_chapters != arch_chapters:
+    diff = next((f"dua {a['id']}: {k}" for a, b in zip(live_duas, arch_duas)
+                 for k in a if a[k] != b[k]), "structure")
+    print(f"fetch-duas: sunnah.com and the pinned archive disagree ({diff}) — refusing to install",
+          file=sys.stderr)
+    sys.exit(1)
+
+if len(live_duas) != 268 or len(live_chapters) != 132:
+    print(f"fetch-duas: expected 268 duas in 132 chapters, parsed {len(live_duas)} in "
+          f"{len(live_chapters)} — the page changed shape", file=sys.stderr)
+    sys.exit(1)
+
+missing_ref = [d["id"] for d in live_duas if not d["ref"]]
+if len(missing_ref) > 1:
+    print(f"fetch-duas: {len(missing_ref)} duas have no reference — the footnotes did not parse",
+          file=sys.stderr)
+    sys.exit(1)
+
+# ----------------------------------------------------------- counts and audio
+# Joined on the Arabic, never on position: the two datasets agree on the 132
+# chapters and disagree on how many entries some of them hold, and a positional
+# join would silently hand a dua the repetition count of its neighbour.
+HARAKAT = re.compile("[ً-ٰٟۖ-ۭـ]")
+NOT_ARABIC = re.compile(r"[^ؠ-ي\s]")
+
+def key(s):
+    """Letters only: no harakat, no punctuation, no spacing, no alef.
+
+    Alef-blind for the reason the recitation checker is (see normalise.rs): the
+    dagger alef is ambiguous against modern orthography and no rule resolves
+    it, so neither side gets an opinion."""
+    s = unicodedata.normalize("NFKC", s or "")
+    s = HARAKAT.sub("", s)
+    s = NOT_ARABIC.sub(" ", s)
+    for a, b in (("ى", "ي"), ("ة", "ه"), ("ؤ", "ء"), ("ئ", "ء"),
+                 ("أ", "ا"), ("إ", "ا"), ("آ", "ا")):
+        s = s.replace(a, b)
+    return s.replace("ا", "").replace(" ", "")
+
+counts = {c["id"]: c["array"] for c in json.load(open(f"{tmp}/counts.json"))}
+joined = 0
+for d in live_duas:
+    pool = counts.get(d["chapter"], [])
+    k = key(d["ar"])
+    hit = next((e for e in pool if key(e.get("text", "")) == k), None)
+    if hit is None and k:
+        # A near miss is the same dua with the page's parenthetical count or a
+        # merged line; below 0.9 it is a different dua and gets nothing.
+        scored = sorted(((difflib.SequenceMatcher(None, k, key(e.get("text", ""))).ratio(), i)
+                         for i, e in enumerate(pool)), reverse=True)
+        if scored and scored[0][0] >= 0.90:
+            hit = pool[scored[0][1]]
+    if hit is None:
+        continue
+    joined += 1
+    if hit.get("count", 1) > 1:
+        d["count"] = hit["count"]
+    if hit.get("filename"):
+        d["audio"] = hit["filename"]
+
+json.dump({
+    "source": {
+        "book": "Hisn al-Muslim",
+        "author": "Sa'id bin Ali bin Wahf Al-Qahtani",
+        "url": "https://sunnah.com/hisn",
+        "checked_against": f"github.com/majmoo-io/hisnu-al-muslim-data@{archive_sha[:12]}",
+        "counts_from": f"github.com/YousefAsalya/Islamic-Pro-azkar-API@{counts_sha[:12]}",
+        "duas": len(live_duas),
+        "with_count_or_audio": joined,
+    },
+    "chapters": live_chapters,
+    "duas": live_duas,
+}, sys.stdout, ensure_ascii=False, separators=(",", ":"))
+PY
