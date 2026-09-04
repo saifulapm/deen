@@ -19,6 +19,7 @@ use serde_json::json;
 mod align;
 mod audio;
 mod data;
+mod hifz;
 mod normalise;
 mod recite;
 mod words;
@@ -48,6 +49,11 @@ enum Cmd {
         #[arg(long, default_value = audio::DEFAULT_RECITER)]
         reciter: String,
     },
+    /// Memorisation: what is due, and how it went.
+    Hifz {
+        #[command(subcommand)]
+        what: HifzCmd,
+    },
     /// Recite an ayah and be told which words were right.
     ///
     /// With --wav, scores an existing 16 kHz mono recording. Without it,
@@ -65,6 +71,29 @@ enum Cmd {
         #[arg(long, default_value_t = 120)]
         max_seconds: u64,
     },
+}
+
+#[derive(Subcommand)]
+enum HifzCmd {
+    /// Enrol an ayah (`1:6`) or a whole surah (`112`).
+    Add { reference: String },
+    /// Drop an ayah, losing its history.
+    Remove { reference: String },
+    /// Everything due now, oldest first, with the text to recite.
+    Due {
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Record how an attempt went: again | hard | good | easy.
+    Grade {
+        reference: String,
+        grade: String,
+        /// The recitation's accuracy, kept for the trend.
+        #[arg(long)]
+        accuracy: Option<f64>,
+    },
+    /// Counts: enrolled, due, and how far along.
+    Stats,
 }
 
 #[derive(Subcommand)]
@@ -92,6 +121,7 @@ fn run() -> Result<()> {
     match Cli::parse().command {
         Cmd::Api { what } => api(what),
         Cmd::Audio { reference, reciter } => do_audio(&reference, &reciter),
+        Cmd::Hifz { what } => do_hifz(what),
         Cmd::Recite {
             ayah,
             wav,
@@ -131,6 +161,79 @@ fn api(what: ApiCmd) -> Result<()> {
                 // never has to re-split the text and risk disagreeing with the
                 // CDN about which word is the fifth one.
                 "words": words::split(s, a, &ayah.ar, &ayah.taj, &quran.rules),
+            })
+        }
+    };
+    println!("{out}");
+    Ok(())
+}
+
+fn do_hifz(what: HifzCmd) -> Result<()> {
+    let quran = data::Quran::load()?;
+    let mut deck = hifz::Deck::load()?;
+    let now = hifz::now();
+
+    let out = match what {
+        HifzCmd::Add { reference } => {
+            // A bare number is a whole surah — enrolling Al-Ikhlas one ayah at
+            // a time is four commands nobody should have to type.
+            let refs: Vec<String> = if reference.contains(':') {
+                let (s, a) = data::parse_ref(&reference)?;
+                quran.ayah(s, a)?;
+                vec![format!("{s}:{a}")]
+            } else {
+                let n: u16 = reference
+                    .trim()
+                    .parse()
+                    .with_context(|| format!("expected an ayah like 1:6 or a surah like 112, got {reference:?}"))?;
+                quran.surah(n)?;
+                quran.ayat_of(n).iter().map(|a| format!("{}:{}", a.s, a.a)).collect()
+            };
+            let added = refs.iter().filter(|r| deck.add(r, now)).count();
+            deck.save()?;
+            json!({ "added": added, "already": refs.len() - added, "enrolled": deck.cards.len() })
+        }
+        HifzCmd::Remove { reference } => {
+            let removed = deck.remove(&reference);
+            deck.save()?;
+            json!({ "removed": removed, "enrolled": deck.cards.len() })
+        }
+        HifzCmd::Due { limit } => {
+            let due: Vec<_> = deck
+                .due(now)
+                .into_iter()
+                .take(limit)
+                .map(|(reference, card)| {
+                    // The text rides along so a reviewer does not need a second
+                    // call per card to know what it is asking about.
+                    let ayah = data::parse_ref(reference)
+                        .ok()
+                        .and_then(|(s, a)| quran.ayah(s, a).ok());
+                    json!({ "reference": reference, "card": card, "ayah": ayah })
+                })
+                .collect();
+            json!({ "due": due, "total_due": deck.due(now).len(), "enrolled": deck.cards.len() })
+        }
+        HifzCmd::Grade {
+            reference,
+            grade,
+            accuracy,
+        } => {
+            let g = hifz::Grade::parse(&grade)?;
+            let card = deck.review(&reference, g, accuracy, now)?.clone();
+            deck.save()?;
+            json!({ "reference": reference, "card": card, "due_in_days": (card.due.saturating_sub(now)) as f64 / hifz::DAY as f64 })
+        }
+        HifzCmd::Stats => {
+            let learned = deck.cards.values().filter(|c| c.reps > 0).count();
+            let young = deck.cards.values().filter(|c| c.reps > 0 && c.interval < 21.0).count();
+            json!({
+                "enrolled": deck.cards.len(),
+                "due": deck.due(now).len(),
+                "learned": learned,
+                "young": young,
+                "mature": learned - young,
+                "lapses": deck.cards.values().map(|c| c.lapses).sum::<u32>(),
             })
         }
     };
@@ -185,6 +288,7 @@ fn do_recite(reference: &str, wav: Option<PathBuf>, max_seconds: u64) -> Result<
 
     let words = align::align(&normalise::tokens(&ayah.ar), &normalise::tokens(&heard));
     let (correct, total, wer) = align::score(&words);
+    let accuracy = if total == 0 { 0.0 } else { correct as f64 / total as f64 };
 
     println!(
         "{}",
@@ -199,8 +303,13 @@ fn do_recite(reference: &str, wav: Option<PathBuf>, max_seconds: u64) -> Result<
             // 3.0, because every inserted word is an error against a short
             // reference — which is fine as a diagnostic and no way to tell
             // someone how they did.
-            "accuracy": if total == 0 { 0.0 } else { correct as f64 / total as f64 },
+            "accuracy": accuracy,
             "wer": wer,
+            // What this attempt suggests for a memorisation review, so the
+            // reviewer is one keypress from recording it. A suggestion, not a
+            // verdict: the checker is wrong about one word in thirty and the
+            // person reciting knows whether they actually knew it.
+            "suggested_grade": hifz::Grade::from_accuracy(accuracy).name(),
         })
     );
     Ok(())
