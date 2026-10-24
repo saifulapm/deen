@@ -8,9 +8,8 @@
 //!   * per-dua, an mp3 per entry of Hisn al-Muslim, from the pinned repo the
 //!     repeat counts come from
 //!
-//! Fetched with `curl` rather than an HTTP crate, for the same reason
-//! transcription is `voxtype` and recording is `pw-record`: this program's job
-//! is to know what to ask for, not to carry a TLS stack to ask with.
+//! Fetched with `curl` rather than an HTTP crate: this program's job is to
+//! know what to ask for, not to carry a TLS stack to ask with.
 //!
 //! Nothing here ever deletes: the cache is small, additive, and the whole point
 //! is that the second time you tap a word it is instant and offline.
@@ -83,15 +82,28 @@ pub fn dua(key: &str) -> Result<PathBuf> {
     )
 }
 
-/// One ayah, from a reciter.
-pub fn ayah(surah: u16, ayah: u16, reciter: &str) -> Result<PathBuf> {
+fn ayah_dest(surah: u16, ayah: u16, reciter: &str) -> (PathBuf, String) {
     let key = format!("{surah:03}{ayah:03}");
     let dest = cache_root()
         .join("ayah")
         .join(reciter)
         .join(format!("{key}.mp3"));
-    ensure(
-        &format!("https://everyayah.com/data/{reciter}/{key}.mp3"),
-        &dest,
-    )
+    (dest, format!("https://everyayah.com/data/{reciter}/{key}.mp3"))
+}
+
+/// One ayah, from a reciter.
+pub fn ayah(surah: u16, ayah: u16, reciter: &str) -> Result<PathBuf> {
+    let (dest, url) = ayah_dest(surah, ayah, reciter);
+    ensure(&url, &dest)
+}
+
+/// Where a player finds one ayah without a download: the cached file if it is
+/// there, else the URL.
+pub fn ayah_source(surah: u16, ayah: u16, reciter: &str) -> String {
+    let (dest, url) = ayah_dest(surah, ayah, reciter);
+    if dest.is_file() && dest.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+        dest.to_string_lossy().into_owned()
+    } else {
+        url
+    }
 }

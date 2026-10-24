@@ -1,16 +1,12 @@
 # deen
 
-Check your Quran recitation against the text, from the command line.
+The Quran, duas, hadith and a memorisation deck, from the command line.
 
-You pick an ayah, you recite it, and it tells you which words were right —
-word by word, not as a score. It runs entirely on your machine: no account, no
-upload, and the recording is deleted the moment it has been scored.
+The Quran, duas and hadith, and a memorisation deck you grade yourself. It
+runs entirely on your machine: no account, no upload. `deen recite` and its
+microphone code were removed.
 
 ```console
-$ deen recite 1:5
-… recite, then press enter …
-{"ayah":{…},"heard":"إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ","correct":4,"total":4,"accuracy":1.0,…}
-
 $ deen api ayah 1:6 | jq -r .ayah.ar
 ٱهْدِنَا ٱلصِّرَٰطَ ٱلْمُسْتَقِيمَ
 ```
@@ -64,34 +60,13 @@ drawn from Bukhari and Muslim only: search reaches the whole corpus because you
 went looking, but one that arrives unasked should not be one you have to weigh a
 grading dispute about.
 
-## What it does and does not check
-
-**It checks that you said the right words, in the right order.** Wrong words,
-skipped words and inserted words are caught and located.
-
-**It does not check tajweed.** Articulation errors — ص/س, ض/د, ق/ك, ط/ت — are
-exactly what a speech model's language prior repairs on your behalf: it hears
-an approximate sound, recognises the word from context, and reports it as
-correct. A tool that claimed otherwise would tell you your recitation was fine
-precisely when you needed to hear that it was not.
-
-So this is worth using between lessons. It is not a teacher, and it will not
-tell you that your madd was short or your ḍād was a dāl.
-
-## Requirements
-
-- [voxtype](https://github.com/hyprsyn/voxtype) — used only for its one-shot
-  `transcribe` subcommand; the dictation daemon is never involved.
-- A Quran-tuned whisper model in ggml form (see Install).
-- `pw-record` and `wpctl` (pipewire-utils) for recording.
-
 ## Install
 
 ```sh
 cargo install --path .
 ```
 
-Then the data and the model:
+Then the data:
 
 ```sh
 # The text: Uthmani script with Bangla (Muhiuddin Khan) and English (Sahih
@@ -107,20 +82,6 @@ scripts/fetch-duas > ~/.local/share/deen/duas.json
 # The hadith corpus: ten collections in three languages, from a pinned commit
 # of fawazahmed0/hadith-api (Unlicense). 104 MB, a few minutes, once.
 scripts/fetch-hadith ~/.local/share/deen/hadith
-
-# The model: Tarteel's Quran fine-tune of whisper-base, q8_0.
-curl -fL -o /tmp/q.bin https://huggingface.co/ram-a-dhan/tarteel-whisper-quran-ggml/resolve/main/tarteel-ai-whisper-base-ar-quran-ggml-q8_0.bin
-```
-
-**Every published ggml conversion of this model needs a four-byte fix before
-whisper.cpp will load it.** The header declares `n_text_ctx = 1024` while
-`decoder.positional_embedding` is the standard `448`, so it is rejected with
-*"tensor 'decoder.positional_embedding' has wrong size"*. The tensor is fine;
-only the header lies. Patch offset 24:
-
-```sh
-printf '\xc0\x01\x00\x00' | dd of=/tmp/q.bin bs=1 seek=24 conv=notrunc
-mv /tmp/q.bin ~/.local/share/voxtype/models/ggml-quran-base-q8.bin
 ```
 
 ## Configuration
@@ -132,20 +93,6 @@ Environment overrides, all optional:
 | `DEEN_DATA` | the Quran JSON (default `~/.local/share/deen/quran.json`) |
 | `DEEN_DUAS` | the duas JSON (default `~/.local/share/deen/duas.json`) |
 | `DEEN_HADITH` | the hadith corpus directory (default `~/.local/share/deen/hadith`) |
-| `DEEN_MODEL` | the ggml model (default `~/.local/share/voxtype/models/ggml-quran-base-q8.bin`) |
-
-`deen` writes its own voxtype config to `~/.cache/deen/whisper.toml` and
-regenerates it whenever the model path changes. Your dictation config is never
-touched — three things in that generated file are load-bearing and the reasons
-are in `src/recite.rs`.
-
-## Stopping a recording
-
-`deen recite <ayah>` records until **stdin closes**, or a line arrives on it,
-or `--max-seconds` (default 120) elapses. From a terminal that means pressing
-enter. From a program it means closing the pipe — no PIDs, no signals.
-
-Pass `--wav <file>` to score an existing 16 kHz mono recording instead.
 
 ## Licence
 

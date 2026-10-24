@@ -1,4 +1,4 @@
-//! deen — check your Quran recitation against the text.
+//! deen — the Quran, duas and hadith, and a memorisation deck.
 //!
 //! Every command answers with exactly one JSON object on stdout and puts
 //! diagnostics on stderr, so the caller can parse stdout blind. That contract
@@ -8,15 +8,12 @@
 //! It is an ordinary terminal program too:
 //!
 //!     deen api ayah 1:6 | jq -r .ar
-//!     deen recite 1:6 --wav recitation.wav | jq .words
-
-use std::{path::PathBuf, time::Duration};
+//!     deen hifz due | jq '.due[0].next'
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 
-mod align;
 mod audio;
 mod daily;
 mod data;
@@ -24,7 +21,6 @@ mod duas;
 mod hadith;
 mod hifz;
 mod normalise;
-mod recite;
 mod words;
 
 #[derive(Parser)]
@@ -51,6 +47,10 @@ enum Cmd {
         /// everyayah.com reciter directory, for whole-ayah audio.
         #[arg(long, default_value = audio::DEFAULT_RECITER)]
         reciter: String,
+        /// With `1:5`, print the queue from that ayah to the surah's last:
+        /// cached paths where there are any, else URLs. Downloads nothing.
+        #[arg(long)]
+        to_end: bool,
     },
     /// Daily adhkar, from Hisn al-Muslim, each with the book's reference.
     Dua {
@@ -66,23 +66,6 @@ enum Cmd {
     Hifz {
         #[command(subcommand)]
         what: HifzCmd,
-    },
-    /// Recite an ayah and be told which words were right.
-    ///
-    /// With --wav, scores an existing 16 kHz mono recording. Without it,
-    /// records from the microphone until stdin closes — so a caller can stop
-    /// the recording by closing the pipe, and a person can stop it by pressing
-    /// enter.
-    Recite {
-        /// Ayah reference, e.g. 1:6
-        ayah: String,
-        /// Score this recording instead of the microphone.
-        #[arg(long)]
-        wav: Option<PathBuf>,
-        /// Ceiling on a microphone recording, so a caller that never closes
-        /// stdin cannot hold the microphone open indefinitely.
-        #[arg(long, default_value_t = 120)]
-        max_seconds: u64,
     },
 }
 
@@ -127,7 +110,7 @@ enum HifzCmd {
     Add { reference: String },
     /// Drop an ayah, losing its history.
     Remove { reference: String },
-    /// Everything due now, oldest first, with the text to recite.
+    /// Everything due now, oldest first, with the text to review.
     Due {
         #[arg(long, default_value_t = 20)]
         limit: usize,
@@ -136,9 +119,6 @@ enum HifzCmd {
     Grade {
         reference: String,
         grade: String,
-        /// The recitation's accuracy, kept for the trend.
-        #[arg(long)]
-        accuracy: Option<f64>,
     },
     /// Counts: enrolled, due, and how far along.
     Stats,
@@ -175,15 +155,14 @@ fn main() {
 fn run() -> Result<()> {
     match Cli::parse().command {
         Cmd::Api { what } => api(what),
-        Cmd::Audio { reference, reciter } => do_audio(&reference, &reciter),
+        Cmd::Audio {
+            reference,
+            reciter,
+            to_end,
+        } => do_audio(&reference, &reciter, to_end),
         Cmd::Dua { what } => do_dua(what),
         Cmd::Hadith { what } => do_hadith(what),
         Cmd::Hifz { what } => do_hifz(what),
-        Cmd::Recite {
-            ayah,
-            wav,
-            max_seconds,
-        } => do_recite(&ayah, wav, max_seconds),
     }
 }
 
@@ -331,18 +310,24 @@ fn do_hifz(what: HifzCmd) -> Result<()> {
                     let ayah = data::parse_ref(reference)
                         .ok()
                         .and_then(|(s, a)| quran.ayah(s, a).ok());
-                    json!({ "reference": reference, "card": card, "ayah": ayah })
+                    let next: serde_json::Map<String, serde_json::Value> = hifz::GRADES
+                        .iter()
+                        .map(|g| (g.name().to_string(), card.next_in(*g, now).into()))
+                        .collect();
+                    json!({ "reference": reference, "card": card, "ayah": ayah, "next": next })
                 })
                 .collect();
-            json!({ "due": due, "total_due": deck.due(now).len(), "enrolled": deck.cards.len() })
+            let all = deck.due(now);
+            json!({
+                "due": due,
+                "total_due": all.len(),
+                "new_due": all.iter().filter(|(_, c)| c.reps == 0).count(),
+                "enrolled": deck.cards.len(),
+            })
         }
-        HifzCmd::Grade {
-            reference,
-            grade,
-            accuracy,
-        } => {
+        HifzCmd::Grade { reference, grade } => {
             let g = hifz::Grade::parse(&grade)?;
-            let card = deck.review(&reference, g, accuracy, now)?.clone();
+            let card = deck.review(&reference, g, now)?.clone();
             deck.save()?;
             json!({ "reference": reference, "card": card, "due_in_days": (card.due.saturating_sub(now)) as f64 / hifz::DAY as f64 })
         }
@@ -363,7 +348,15 @@ fn do_hifz(what: HifzCmd) -> Result<()> {
     Ok(())
 }
 
-fn do_audio(reference: &str, reciter: &str) -> Result<()> {
+fn do_audio(reference: &str, reciter: &str, to_end: bool) -> Result<()> {
+    if to_end {
+        let (s, a) = data::parse_ref(reference)?;
+        let last = data::Quran::load()?.surah(s)?.count;
+        let queue: Vec<String> = (a..=last).map(|n| audio::ayah_source(s, n, reciter)).collect();
+        println!("{}", json!({ "queue": queue }));
+        return Ok(());
+    }
+
     // A dua is asked for by name because its key is a position in the book,
     // not a coordinate: `dua:75a` has no second number to parse.
     if let Some(id) = reference.strip_prefix("dua:") {
@@ -397,56 +390,5 @@ fn do_audio(reference: &str, reciter: &str) -> Result<()> {
         _ => anyhow::bail!("expected 1:1 for an ayah or 1:1:1 for a word, got {reference:?}"),
     };
     println!("{}", json!({ "path": path.to_string_lossy() }));
-    Ok(())
-}
-
-fn do_recite(reference: &str, wav: Option<PathBuf>, max_seconds: u64) -> Result<()> {
-    let (s, a) = data::parse_ref(reference)?;
-    let quran = data::Quran::load()?;
-    let ayah = quran.ayah(s, a)?;
-
-    // A recording we made is scratch and gets removed; one handed to us with
-    // --wav belongs to the caller and is left alone.
-    let (path, ours) = match wav {
-        Some(p) => (p, false),
-        None => {
-            let p = recite::scratch_wav()?;
-            recite::record(&p, Duration::from_secs(max_seconds))?;
-            (p, true)
-        }
-    };
-
-    let heard = recite::transcribe(&path);
-    if ours {
-        let _ = std::fs::remove_file(&path);
-    }
-    let heard = heard?;
-
-    let words = align::align(&normalise::tokens(&ayah.ar), &normalise::tokens(&heard));
-    let (correct, total, wer) = align::score(&words);
-    let accuracy = if total == 0 { 0.0 } else { correct as f64 / total as f64 };
-
-    println!(
-        "{}",
-        json!({
-            "ayah": ayah,
-            "heard": heard,
-            "words": words,
-            "correct": correct,
-            "total": total,
-            // Bounded 0..1 and the only figure fit to show a person. `wer`
-            // is unbounded above — reciting the wrong ayah entirely scores
-            // 3.0, because every inserted word is an error against a short
-            // reference — which is fine as a diagnostic and no way to tell
-            // someone how they did.
-            "accuracy": accuracy,
-            "wer": wer,
-            // What this attempt suggests for a memorisation review, so the
-            // reviewer is one keypress from recording it. A suggestion, not a
-            // verdict: the checker is wrong about one word in thirty and the
-            // person reciting knows whether they actually knew it.
-            "suggested_grade": hifz::Grade::from_accuracy(accuracy).name(),
-        })
-    );
     Ok(())
 }

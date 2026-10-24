@@ -6,15 +6,15 @@ description = "Check your Quran recitation against the text, from the command li
 license = "MIT"
 repository = "https://github.com/saifulapm/deen"
 readme = "README.md"
-keywords = ["quran", "recitation", "tajweed", "whisper", "cli"]
+keywords = ["quran", "recitation", "tajweed", "cli"]
 
 [dependencies]
 # The Quran ships as one local JSON file and every command answers with one
 # JSON object on stdout, so this is the whole data layer. There is deliberately
 # no HTTP client: unlike TMDB the Quran does not change, so the text is on disk
 # and the only network in the project is the install script that fetches it
-# once. Transcription shells out to voxtype and recording to pw-record, which
-# is why there is no audio or ML dependency either.
+# once. Audio is fetched with curl, which
+# is why there is no audio dependency either.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }

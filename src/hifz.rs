@@ -1,11 +1,8 @@
 //! Memorisation scheduling: which ayat to review, and when next.
 //!
 //! SM-2, the algorithm behind Anki and SuperMemo, over ayat instead of
-//! flashcards. What makes it worth having here rather than as a separate app is
-//! that the REVIEW IS THE RECITATION: you are shown a reference, you recite
-//! from memory, and `deen recite` scores it. There is no self-report step where
-//! you decide whether you knew it, which is the step people lie to themselves
-//! at.
+//! flashcards. You are shown a reference, say it from memory, and grade
+//! yourself with one of four buttons.
 //!
 //! DUE DATES ARE ABSOLUTE TIMESTAMPS, NOT CALENDAR DAYS. A day boundary needs a
 //! timezone, a timezone needs a database, and none of it would buy anything: an
@@ -25,6 +22,9 @@ use serde::{Deserialize, Serialize};
 
 pub const DAY: u64 = 86_400;
 
+/// An `Again` card comes back in ten minutes.
+pub const AGAIN_SECS: u64 = 600;
+
 /// How well an attempt went. Anki's four buttons rather than SM-2's 0..5: a
 /// person can tell these apart, and the six-point scale asks for a precision
 /// nobody has about their own recall.
@@ -35,6 +35,8 @@ pub enum Grade {
     Good,
     Easy,
 }
+
+pub const GRADES: [Grade; 4] = [Grade::Again, Grade::Hard, Grade::Good, Grade::Easy];
 
 impl Grade {
     pub fn parse(s: &str) -> Result<Self> {
@@ -65,24 +67,6 @@ impl Grade {
             Grade::Easy => 5.0,
         }
     }
-
-    /// What the recitation itself suggests, before the reciter overrides it.
-    ///
-    /// Deliberately generous at the top. The checker's own error rate is about
-    /// one word in thirty on clean audio and worse on a learner's, so demanding
-    /// a literal 100% to call something Easy would punish people for the tool's
-    /// mistakes. Below half, though, the words were not there.
-    pub fn from_accuracy(accuracy: f64) -> Self {
-        if accuracy >= 0.97 {
-            Grade::Easy
-        } else if accuracy >= 0.85 {
-            Grade::Good
-        } else if accuracy >= 0.5 {
-            Grade::Hard
-        } else {
-            Grade::Again
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,9 +81,6 @@ pub struct Card {
     pub due: u64,
     /// How many times it has been forgotten after being learned.
     pub lapses: u32,
-    /// The last recitation's accuracy, for the UI to show a trend.
-    #[serde(default)]
-    pub last_accuracy: Option<f64>,
 }
 
 impl Card {
@@ -110,8 +91,15 @@ impl Card {
             interval: 0.0,
             due: now,
             lapses: 0,
-            last_accuracy: None,
         }
+    }
+
+    /// Seconds until this card would come back if rated `grade` now. Runs the
+    /// real review on a copy, so there is one formula.
+    pub fn next_in(&self, grade: Grade, now: u64) -> u64 {
+        let mut c = self.clone();
+        c.review(grade, now);
+        c.due - now
     }
 
     fn review(&mut self, grade: Grade, now: u64) {
@@ -125,7 +113,7 @@ impl Card {
             }
             self.reps = 0;
             self.interval = 0.0;
-            self.due = now + DAY / 6; // ten minutes, not a day: it is still today's problem
+            self.due = now + AGAIN_SECS; // still today's problem
         } else {
             self.interval = match self.reps {
                 0 => 1.0,
@@ -213,13 +201,12 @@ impl Deck {
         out
     }
 
-    pub fn review(&mut self, reference: &str, grade: Grade, accuracy: Option<f64>, now: u64) -> Result<&Card> {
+    pub fn review(&mut self, reference: &str, grade: Grade, now: u64) -> Result<&Card> {
         let card = self
             .cards
             .entry(reference.to_string())
             .or_insert_with(|| Card::new(now));
         card.review(grade, now);
-        card.last_accuracy = accuracy;
         Ok(card)
     }
 }
@@ -242,31 +229,40 @@ mod tests {
     fn the_ladder_is_one_day_then_six() {
         let mut d = Deck::default();
         d.add("112:1", T);
-        d.review("112:1", Grade::Good, Some(1.0), T).unwrap();
+        d.review("112:1", Grade::Good, T).unwrap();
         assert_eq!(d.cards["112:1"].interval, 1.0);
-        d.review("112:1", Grade::Good, Some(1.0), T).unwrap();
+        d.review("112:1", Grade::Good, T).unwrap();
         assert_eq!(d.cards["112:1"].interval, 6.0);
-        d.review("112:1", Grade::Good, Some(1.0), T).unwrap();
+        d.review("112:1", Grade::Good, T).unwrap();
         assert!(d.cards["112:1"].interval > 6.0, "then it multiplies by ease");
     }
 
     #[test]
     fn again_returns_it_today_and_counts_a_lapse() {
         let mut d = Deck::default();
-        d.add("112:1", T);
-        d.review("112:1", Grade::Good, Some(1.0), T).unwrap();
-        d.review("112:1", Grade::Again, Some(0.2), T).unwrap();
+        let noon = T / DAY * DAY + DAY / 2;
+        d.add("112:1", noon);
+        d.review("112:1", Grade::Good, noon).unwrap();
+        d.review("112:1", Grade::Again, noon).unwrap();
         let c = &d.cards["112:1"];
         assert_eq!(c.reps, 0);
         assert_eq!(c.lapses, 1);
-        assert!(c.due < T + DAY, "a forgotten ayah is still today's problem");
+        assert_eq!(c.due, noon + AGAIN_SECS);
+        assert!(c.due < noon + DAY / 2, "a forgotten ayah is still today's problem");
+    }
+
+    #[test]
+    fn a_new_card_rated_good_is_due_in_a_day() {
+        let c = Card::new(T);
+        assert_eq!(c.next_in(Grade::Good, T), DAY);
+        assert_eq!(c.next_in(Grade::Again, T), 600);
     }
 
     #[test]
     fn a_first_attempt_that_fails_is_not_a_lapse() {
         let mut d = Deck::default();
         d.add("112:1", T);
-        d.review("112:1", Grade::Again, Some(0.0), T).unwrap();
+        d.review("112:1", Grade::Again, T).unwrap();
         assert_eq!(d.cards["112:1"].lapses, 0, "you cannot forget what you never had");
     }
 
@@ -275,19 +271,9 @@ mod tests {
         let mut d = Deck::default();
         d.add("112:1", T);
         for _ in 0..20 {
-            d.review("112:1", Grade::Again, Some(0.0), T).unwrap();
+            d.review("112:1", Grade::Again, T).unwrap();
         }
         assert!(d.cards["112:1"].ease >= 1.3);
-    }
-
-    #[test]
-    fn accuracy_maps_generously_at_the_top() {
-        // The checker's own error rate must not cost the reciter a grade.
-        assert_eq!(Grade::from_accuracy(1.0), Grade::Easy);
-        assert_eq!(Grade::from_accuracy(0.97), Grade::Easy);
-        assert_eq!(Grade::from_accuracy(0.90), Grade::Good);
-        assert_eq!(Grade::from_accuracy(0.60), Grade::Hard);
-        assert_eq!(Grade::from_accuracy(0.20), Grade::Again);
     }
 
     #[test]
