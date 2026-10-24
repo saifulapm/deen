@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Build deen's per-word data and write it to stdout. Run once, like fetch-data.
+#
+#   scripts/fetch-words > ~/.local/share/deen/words.json
+#
+# Output: {"1:1":{"juz":1,"words":[{"text","en","tr","root","audio"}]}}
+#
+# Meanings, transliteration, juz and the word audio key come from quran.com's
+# v4 API (no key), one request per surah. Roots come from the Quranic Arabic
+# Corpus morphology, pinned below. The two sources split words independently,
+# so an ayah's roots are kept only when both count the same words; otherwise
+# that ayah's roots are null, because joining by index would put a root on the
+# wrong word.
+set -euo pipefail
+
+MORPHOLOGY_SHA=8f38b39016824284f9ed16ae15069ff9102c4acf
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+curl -fsSL --retry 3 --max-time 300 -o "$tmp/morphology.txt" \
+  "https://raw.githubusercontent.com/mustafa0x/quran-morphology/$MORPHOLOGY_SHA/quran-morphology.txt"
+
+for n in $(seq 1 114); do
+  curl -fsSL --retry 3 --retry-delay 2 --max-time 120 -o "$tmp/$n.json" \
+    "https://api.quran.com/api/v4/verses/by_chapter/$n?words=true&per_page=300&fields=juz_number&word_fields=text_uthmani"
+  sleep 0.2
+done
+
+python3 - "$tmp" <<'PY'
+import json, sys, collections
+tmp = sys.argv[1]
+
+# Morphology lines are "s:a:w:segment<TAB>form<TAB>pos<TAB>features". A word has
+# several segments (prefix, stem); the root, when there is one, is on the stem
+# as "ROOT:سمو", in Arabic letters. Particles have none.
+roots = {}                       # (s, a, w) -> "س م و"
+count = collections.Counter()    # (s, a) -> words in the morphology
+for line in open(f"{tmp}/morphology.txt", encoding="utf-8"):
+    cols = line.rstrip("\n").split("\t")
+    if len(cols) < 4:
+        continue
+    s, a, w, _seg = (int(x) for x in cols[0].split(":"))
+    count[(s, a)] = max(count[(s, a)], w)
+    for f in cols[3].split("|"):
+        if f.startswith("ROOT:"):
+            roots[(s, a, w)] = " ".join(f[5:])
+
+out = {}
+mismatch = 0
+for n in range(1, 115):
+    verses = json.load(open(f"{tmp}/{n}.json", encoding="utf-8"))["verses"]
+    for v in verses:
+        s, a = (int(x) for x in v["verse_key"].split(":"))
+        # "end" is the ayah-number glyph, not a word.
+        ws = [w for w in v["words"] if w["char_type_name"] == "word"]
+        same = count[(s, a)] == len(ws)
+        if not same:
+            mismatch += 1
+        out[f"{s}:{a}"] = {"juz": v["juz_number"], "words": [{
+            "text": w["text_uthmani"],
+            "en": (w.get("translation") or {}).get("text"),
+            "tr": (w.get("transliteration") or {}).get("text"),
+            "root": roots.get((s, a, w["position"])) if same else None,
+            # Built from the position: quran.com leaves audio_url empty for
+            # 36:52 word 7, though the CDN key follows the same pattern.
+            "audio": f"{s:03}_{a:03}_{w['position']:03}",
+        } for w in ws]}
+
+assert len(out) == 6236, f"quran.com gave {len(out)} ayat, expected 6236"
+print(f"fetch-words: {mismatch} ayat where the morphology word count differs", file=sys.stderr)
+json.dump(out, sys.stdout, ensure_ascii=False, separators=(",", ":"))
+PY
