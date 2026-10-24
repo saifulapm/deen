@@ -162,15 +162,24 @@ fn sizes(base: &str) -> Result<Sizes> {
             // cache miss; the total in a one-byte Range answer is the size.
             (Some("200"), None) => Some(ranged_size(base, &n)?),
             (Some("404"), _) if n.starts_with("ben-") => None,
-            _ => bail!(
-                "cannot reach {n}: {}{}",
-                text.trim(),
-                String::from_utf8_lossy(&out.stderr).trim()
-            ),
+            // curl writes 000 for no answer at all, and then its own error says why.
+            (Some("000") | None, _) => bail!("cannot reach {n}: {}", curl_error(&out.stderr)),
+            (Some(code), _) => bail!("cannot reach {n}: the server answered {code}"),
         };
         sizes.insert(n, size);
     }
     Ok(sizes)
+}
+
+/// curl's "curl: (7) Failed to connect ..." without its program name and number.
+fn curl_error(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let line = text.lines().next().unwrap_or("").trim();
+    let line = line.strip_prefix("curl: ").unwrap_or(line);
+    match line.split_once(") ") {
+        Some((code, rest)) if code.starts_with('(') => rest.to_string(),
+        _ => line.to_string(),
+    }
 }
 
 fn ranged_size(base: &str, n: &str) -> Result<u64> {

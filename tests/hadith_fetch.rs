@@ -320,3 +320,15 @@ fn a_head_without_content_length_still_gets_the_size() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     assert_eq!(events(&out).last().unwrap(), &json!({ "event": "done", "total": total }));
 }
+
+// curl's own code for no connection is 000, which read as "000curl: (7) ..." glued to its error (#3JX22QCJ).
+#[test]
+fn an_unreachable_cdn_is_said_plainly() {
+    let dir = scratch("unreachable");
+    let out = deen(&dir.join("hadith"), "http://127.0.0.1:9", &["hadith", "fetch", "--json"]);
+    assert!(!out.status.success());
+    let error = events(&out).into_iter().find(|e| e["event"] == "error").expect("an error event");
+    let message = error["message"].as_str().unwrap();
+    assert!(message.starts_with("cannot reach ara-bukhari.min.json: Failed to connect"), "{message}");
+    assert!(!message.contains("000"), "{message}");
+}
