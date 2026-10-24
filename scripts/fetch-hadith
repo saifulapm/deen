@@ -50,7 +50,7 @@ for c in $COLLECTIONS; do
   # instead of ten. Nobody would have noticed by reading the output.
   for lang in ara eng; do
     curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-      -o "$tmp/$lang-$c.json" "$BASE/$lang-$c.min.json" || {
+      -o "$tmp/$lang-$c.min.json" "$BASE/$lang-$c.min.json" || {
       echo "fetch-hadith: could not fetch $lang-$c — refusing to install a partial corpus" >&2
       exit 1
     }
@@ -58,121 +58,7 @@ for c in $COLLECTIONS; do
   # Bengali is genuinely absent for two collections, so a 404 here is data
   # rather than a failure: those two get no Bangla column.
   curl -fsSL --retry 3 --retry-delay 2 --max-time 600 \
-    -o "$tmp/ben-$c.json" "$BASE/ben-$c.min.json" || true
+    -o "$tmp/ben-$c.min.json" "$BASE/ben-$c.min.json" || true
 done
 
-python3 - "$tmp" "$out" "$SHA" "$COLLECTIONS" <<'PY'
-import json, os, re, sys
-
-tmp, out, sha, collections = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4].split()
-
-BENGALI = re.compile("[ঀ-৿]")
-
-def load(lang, c):
-    path = f"{tmp}/{lang}-{c}.json"
-    if not os.path.exists(path) or os.path.getsize(path) == 0:
-        return None
-    return json.load(open(path, encoding="utf-8"))
-
-def key(h):
-    # The number is a STRING because a few are fractional (402.2), the same way
-    # a dua id is a string because a few are lettered (75a). It is a citation,
-    # not an index, and parsing it as a number loses the ones that matter.
-    n = h.get("hadithnumber")
-    return ("%s" % n).rstrip("0").rstrip(".") if isinstance(n, float) and n.is_integer() else str(n)
-
-def number_order(k):
-    """File order is the book's order, so a reader scrolling a collection is
-    walking it rather than reading a hash. `402.2` sorts after `402`."""
-    try:
-        return (0, float(k), "")
-    except ValueError:
-        return (1, 0.0, k)
-
-manifest = []
-for c in collections:
-    ar, en, bn = load("ara", c), load("eng", c), load("ben", c)
-    if ar is None or en is None:
-        # Unreachable now that the fetch is fatal, and kept as the belt to that
-        # brace: a skipped collection must never be a warning nobody reads.
-        print(f"fetch-hadith: {c} is missing its Arabic or English edition", file=sys.stderr)
-        sys.exit(1)
-
-    A = {key(h): h for h in ar["hadiths"]}
-    E = {key(h): h for h in en["hadiths"]}
-    if set(A) != set(E):
-        # THE JOIN KEY HAS TO BE THE SAME KEY. Two editions that disagree about
-        # which numbers exist would pair an Arabic hadith with somebody else's
-        # translation, and nothing downstream could tell.
-        print(f"fetch-hadith: {c} arabic has {len(A)} numbers and english {len(E)}, "
-              f"{len(set(A) ^ set(E))} of them unmatched — refusing to join", file=sys.stderr)
-        sys.exit(1)
-
-    B = {}
-    bn_dropped = 0
-    if bn is not None:
-        raw = {key(h): h for h in bn["hadiths"]}
-        overlap = len(set(raw) & set(A))
-        if overlap < 0.95 * len(A):
-            # A Bengali edition numbered differently from the Arabic cannot be
-            # placed beside it. Better no Bangla than the wrong Bangla.
-            print(f"fetch-hadith: {c} bengali matches only {overlap} of {len(A)} numbers — "
-                  f"dropping bengali for this collection", file=sys.stderr)
-        else:
-            for k, h in raw.items():
-                if k not in A:
-                    continue
-                text = (h.get("text") or "").strip()
-                # 0.8% of the Bengali entries are the chapter heading in Arabic
-                # rather than a translation (Bukhari 6306 is one). An entry with
-                # no Bengali script in it is not a Bengali translation, and
-                # showing it as one would be a lie the reader cannot catch.
-                if not BENGALI.search(text):
-                    bn_dropped += 1
-                    continue
-                B[k] = text
-
-    sections = {str(k): v for k, v in (en.get("metadata", {}).get("sections") or {}).items() if v}
-    graded = 0
-    with open(f"{out}/{c}.jsonl", "w", encoding="utf-8") as f:
-        for k in sorted(A, key=number_order):
-            a, e = A[k], E[k]
-            grades = [{"by": g.get("name", "").strip(), "grade": g.get("grade", "").strip()}
-                      for g in (e.get("grades") or []) if g.get("name") and g.get("grade")]
-            if grades:
-                graded += 1
-            ref = e.get("reference") or {}
-            row = {"n": k, "ar": (a.get("text") or "").strip(), "en": (e.get("text") or "").strip()}
-            if k in B:
-                row["bn"] = B[k]
-            if grades:
-                row["grades"] = grades
-            if ref.get("book") is not None:
-                row["book"] = ref["book"]
-            if ref.get("hadith") is not None:
-                row["in_book"] = ref["hadith"]
-            f.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
-
-    manifest.append({
-        "slug": c,
-        "name": (en.get("metadata", {}) or {}).get("name") or c,
-        "hadiths": len(A),
-        "bengali": len(B),
-        "bengali_untranslated": bn_dropped,
-        "graded": graded,
-        "sections": sections,
-    })
-    print(f"fetch-hadith: {c}: {len(A)} hadiths, {len(B)} bengali, {graded} graded", file=sys.stderr)
-
-json.dump({
-    "source": {
-        "url": f"github.com/fawazahmed0/hadith-api@{sha[:12]}",
-        "licence": "Unlicense",
-        "numbering": "sunnah.com",
-        "verify": "https://sunnah.com/<collection>:<number>",
-        "collections": len(manifest),
-        "hadiths": sum(m["hadiths"] for m in manifest),
-    },
-    "collections": manifest,
-}, open(f"{out}/collections.json", "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
-PY
+python3 -I "$(dirname "$0")/join-hadith" "$tmp" "$out" "$SHA" "$COLLECTIONS"
