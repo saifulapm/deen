@@ -10,8 +10,9 @@
 //! total, and drops every later GET before replying, so a client's retries
 //! fail as well. FAKE_HEAD_NO_LENGTH=1 answers HEAD without Content-Length,
 //! the way a jsDelivr edge does on a cold cache miss. FAKE_SLOW_MS=<ms>
-//! waits that long before each 256-byte chunk. FAKE_LOG=<file> gets
-//! one line per request:
+//! waits that long before each 256-byte chunk. FAKE_PORT=<port> listens there
+//! rather than on a free port, so a restarted server keeps its address.
+//! FAKE_LOG=<file> gets one line per request:
 //! `<method> <path> <range or -> <body bytes served>`.
 
 use std::{
@@ -41,7 +42,8 @@ fn main() {
     });
     let shared = Arc::new(Shared { dir, cut, served: AtomicU64::new(0), log: Mutex::new(log) });
 
-    let listener = TcpListener::bind("127.0.0.1:0").expect("cannot bind");
+    let port = std::env::var("FAKE_PORT").unwrap_or_else(|_| "0".into());
+    let listener = TcpListener::bind(format!("127.0.0.1:{port}")).expect("cannot bind");
     println!("{}", listener.local_addr().unwrap());
     std::io::stdout().flush().unwrap();
 
