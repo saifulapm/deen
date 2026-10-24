@@ -11,7 +11,11 @@
 //! one, and nothing is dropped — dropping a token would silently shift every
 //! audio key after it.
 
-use serde::Serialize;
+use std::{collections::HashMap, fs};
+
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 /// A run of characters within a word that share a tajweed rule (or none).
 /// Kept as text rather than as offsets because the caller renders it: Arabic
@@ -32,6 +36,73 @@ pub struct Word {
     /// `001_001_001` — resolve against `https://audio.qurancdn.com/wbw/`.
     pub audio: String,
     pub segments: Vec<Segment>,
+    /// English meaning, transliteration and root letters ("س م و"), from
+    /// words.json. All null without it; `root` is also null for a particle.
+    pub en: Option<String>,
+    pub tr: Option<String>,
+    pub root: Option<String>,
+}
+
+/// One word as `scripts/fetch-words` stores it.
+#[derive(Debug, Deserialize)]
+pub struct Extra {
+    pub text: String,
+    pub en: Option<String>,
+    pub tr: Option<String>,
+    pub root: Option<String>,
+    pub audio: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AyahExtra {
+    pub juz: Option<u8>,
+    pub words: Vec<Extra>,
+}
+
+/// words.json keyed `"s:a"`. A missing file is not an error: the reader then
+/// shows v1's tokens without meanings.
+pub fn load_extras() -> Result<HashMap<String, AyahExtra>> {
+    let path = crate::data::words_path();
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return Ok(HashMap::new());
+    };
+    serde_json::from_str(&raw).with_context(|| format!("{} is not valid words data", path.display()))
+}
+
+/// Add meanings to v1's tokens. v1's tokens (with their tajweed runs) stay
+/// when the counts agree, since the two sources split words alike then. When
+/// they differ, an index join would shift every meaning, so words.json's own
+/// words replace them.
+pub fn merge(v1: Vec<Word>, extra: Option<&AyahExtra>) -> Vec<Word> {
+    let Some(extra) = extra else { return v1 };
+    if v1.len() == extra.words.len() {
+        return v1
+            .into_iter()
+            .zip(&extra.words)
+            .map(|(w, e)| Word { en: e.en.clone(), tr: e.tr.clone(), root: e.root.clone(), ..w })
+            .collect();
+    }
+    extra
+        .words
+        .iter()
+        .enumerate()
+        .map(|(k, e)| Word {
+            i: k + 1,
+            text: e.text.clone(),
+            audio: e.audio.clone(),
+            segments: vec![Segment { t: e.text.clone(), r: None }],
+            en: e.en.clone(),
+            tr: e.tr.clone(),
+            root: e.root.clone(),
+        })
+        .collect()
+}
+
+/// An ayah as the reader gets it: the stored fields plus its juz.
+pub fn ayah_json(ayah: &crate::data::Ayah, extra: Option<&AyahExtra>) -> Value {
+    let mut v = json!(ayah);
+    v["juz"] = json!(extra.and_then(|e| e.juz));
+    v
 }
 
 /// `[start, end, rule_index]` triples as stored, plus the rule dictionary.
@@ -80,6 +151,9 @@ pub fn split(surah: u16, ayah: u16, text: &str, taj: &[[usize; 3]], rules: &[Str
             text: chars[start..i].iter().collect(),
             audio: format!("{surah:03}_{ayah:03}_{n:03}"),
             segments,
+            en: None,
+            tr: None,
+            root: None,
         });
     }
     out

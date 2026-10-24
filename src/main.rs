@@ -196,10 +196,13 @@ fn api(what: ApiCmd) -> Result<()> {
             // a reader shows every ayah at once, and Al-Baqarah would
             // otherwise be 286 processes to paint one screen.
             let ayahs = quran.ayat_of(n);
+            let extras = words::load_extras()?;
+            let extra = |a: &data::Ayah| extras.get(&format!("{}:{}", a.s, a.a));
             let words: Vec<_> = ayahs
                 .iter()
-                .map(|a| words::split(a.s, a.a, &a.ar, &a.taj, &quran.rules))
+                .map(|a| words::merge(words::split(a.s, a.a, &a.ar, &a.taj, &quran.rules), extra(a)))
                 .collect();
+            let ayahs: Vec<_> = ayahs.iter().map(|a| words::ayah_json(a, extra(a))).collect();
             json!({
                 "surah": quran.surah(n)?,
                 "ayahs": ayahs,
@@ -236,12 +239,14 @@ fn api(what: ApiCmd) -> Result<()> {
         ApiCmd::Ayah { reference } => {
             let (s, a) = data::parse_ref(&reference)?;
             let ayah = quran.ayah(s, a)?;
+            let extras = words::load_extras()?;
+            let extra = extras.get(&format!("{s}:{a}"));
             json!({
-                "ayah": ayah,
+                "ayah": words::ayah_json(ayah, extra),
                 // Words carry the audio key and the tajweed runs, so a reader
                 // never has to re-split the text and risk disagreeing with the
                 // CDN about which word is the fifth one.
-                "words": words::split(s, a, &ayah.ar, &ayah.taj, &quran.rules),
+                "words": words::merge(words::split(s, a, &ayah.ar, &ayah.taj, &quran.rules), extra),
             })
         }
     };

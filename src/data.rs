@@ -73,6 +73,15 @@ pub fn data_path() -> PathBuf {
     base.join("deen/quran.json")
 }
 
+/// Where the per-word meanings live. `DEEN_WORDS` overrides; otherwise it sits
+/// beside quran.json.
+pub fn words_path() -> PathBuf {
+    if let Ok(p) = std::env::var("DEEN_WORDS") {
+        return PathBuf::from(p);
+    }
+    data_path().with_file_name("words.json")
+}
+
 impl Quran {
     pub fn load() -> Result<Self> {
         let path = data_path();
