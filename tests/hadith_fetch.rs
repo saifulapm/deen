@@ -321,6 +321,21 @@ fn a_head_without_content_length_still_gets_the_size() {
     assert_eq!(events(&out).last().unwrap(), &json!({ "event": "done", "total": total }));
 }
 
+// An edge with no length on HEAD once gave the compressed size as a range's total, and the whole file was refused (#XBYAFGFS).
+#[test]
+fn a_wrong_size_from_the_cdn_does_not_refuse_a_whole_file() {
+    let root = scratch("smalltotal");
+    let ed = root.join("editions");
+    fs::create_dir_all(&ed).unwrap();
+    let total = editions(&ed);
+    let hadith = root.join("hadith");
+    let fake = Fake::start(&ed, &root.join("log"), &[("FAKE_HEAD_NO_LENGTH", "1".into()), ("FAKE_RANGE_TOTAL_SMALL", "1".into())]);
+
+    let out = deen(&hadith, &fake.url, &["hadith", "fetch", "--json"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(events(&out).last().unwrap(), &json!({ "event": "done", "total": total }));
+}
+
 // curl's own code for no connection is 000, which read as "000curl: (7) ..." glued to its error (#3JX22QCJ).
 #[test]
 fn an_unreachable_cdn_is_said_plainly() {

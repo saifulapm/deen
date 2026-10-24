@@ -220,7 +220,7 @@ fn run() -> Result<()> {
     fs::create_dir_all(&dl).with_context(|| format!("cannot create {}", dl.display()))?;
 
     let base = base_url();
-    let sizes = sizes(&base)?;
+    let mut sizes = sizes(&base)?;
     fs::write(dl.join("sizes.json"), serde_json::to_vec(&sizes)?)?;
     let total = sizes.values().flatten().sum();
     let mut progress = Progress { total, window: VecDeque::new() };
@@ -261,8 +261,12 @@ fn run() -> Result<()> {
                 bail!("could not fetch {n}: {}", String::from_utf8_lossy(&err).trim());
             }
         }
-        if len(&tmp) != size {
-            bail!("{n} came to {} bytes, expected {size}", len(&tmp));
+        // curl got the whole body, so its length wins over a size a range answer gave, which an edge has given compressed.
+        let got = len(&tmp);
+        if got != size {
+            sizes.insert(n.clone(), Some(got));
+            fs::write(dl.join("sizes.json"), serde_json::to_vec(&sizes)?)?;
+            progress.total = sizes.values().flatten().sum();
         }
         fs::rename(&tmp, &dest)?;
         progress.tick();
@@ -288,6 +292,6 @@ fn run() -> Result<()> {
         bail!("building the corpus failed: {}", err.trim().lines().last().unwrap_or(""));
     }
     fs::remove_dir_all(&dl)?;
-    emit(json!({ "event": "done", "total": total }));
+    emit(json!({ "event": "done", "total": progress.total }));
     Ok(())
 }

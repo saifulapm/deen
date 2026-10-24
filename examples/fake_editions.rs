@@ -12,7 +12,8 @@
 //! the way a jsDelivr edge does on a cold cache miss. FAKE_SLOW_MS=<ms>
 //! waits that long before each 256-byte chunk. FAKE_PORT=<port> listens there
 //! rather than on a free port, so a restarted server keeps its address.
-//! FAKE_LOG=<file> gets one line per request:
+//! FAKE_RANGE_TOTAL_SMALL=1 gives a seventh of the size as a range answer's
+//! total, as one jsDelivr edge did. FAKE_LOG=<file> gets one line per request:
 //! `<method> <path> <range or -> <body bytes served>`.
 
 use std::{
@@ -121,7 +122,9 @@ fn serve(mut stream: TcpStream, shared: &Shared) -> std::io::Result<()> {
         return stream.shutdown(Shutdown::Both);
     }
     if range.is_some() {
-        write!(stream, "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{}/{len}\r\n", end - 1)?;
+        // A jsDelivr edge has been seen to give the compressed size as the total.
+        let said = if std::env::var_os("FAKE_RANGE_TOTAL_SMALL").is_some() { len / 7 } else { len };
+        write!(stream, "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {start}-{}/{said}\r\n", end - 1)?;
     } else {
         write!(stream, "HTTP/1.1 200 OK\r\n")?;
     }
