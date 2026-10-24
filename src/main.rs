@@ -18,6 +18,7 @@ mod audio;
 mod daily;
 mod data;
 mod duas;
+mod fetch;
 mod hadith;
 mod hifz;
 mod normalise;
@@ -102,6 +103,16 @@ enum HadithCmd {
     },
     /// One narration: `bukhari:5010`.
     Show { reference: String },
+    /// Download the editions and build the corpus, resuming a cut download.
+    ///
+    /// Prints one JSON event per line: progress, converting, then done or
+    /// error. The output is the same with or without --json.
+    Fetch {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Whether the corpus is missing, partial or ready, without the network.
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -264,6 +275,12 @@ fn do_hadith(what: HadithCmd) -> Result<()> {
             let (slug, n) = hadith::parse_ref(&reference)?;
             json!({ "hit": hadith::show(&slug, &n)? })
         }
+        // NDJSON rather than one object, so fetch prints its own lines.
+        HadithCmd::Fetch { json: _ } => {
+            fetch::fetch();
+            return Ok(());
+        }
+        HadithCmd::Status => fetch::status(),
     };
     println!("{out}");
     Ok(())
