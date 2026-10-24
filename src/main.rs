@@ -22,6 +22,7 @@ mod fetch;
 mod hadith;
 mod hifz;
 mod normalise;
+mod prayer;
 mod words;
 
 #[derive(Parser)]
@@ -67,6 +68,17 @@ enum Cmd {
     Hifz {
         #[command(subcommand)]
         what: HifzCmd,
+    },
+    /// Today's prayer times (Hanafi Asr) for the city in the config.
+    ///
+    /// Caches the month under ~/.cache/deen/prayer, so it works offline.
+    Prayer {
+        /// YYYY-MM-DD; defaults to today, local time.
+        #[arg(long)]
+        date: Option<String>,
+        /// Fetch the month again even when it is cached.
+        #[arg(long)]
+        refresh: bool,
     },
 }
 
@@ -174,6 +186,7 @@ fn run() -> Result<()> {
         Cmd::Dua { what } => do_dua(what),
         Cmd::Hadith { what } => do_hadith(what),
         Cmd::Hifz { what } => do_hifz(what),
+        Cmd::Prayer { date, refresh } => prayer::run(date, refresh),
     }
 }
 
