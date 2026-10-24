@@ -17,7 +17,6 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use anyhow::{bail, Context, Result};
@@ -46,7 +45,7 @@ fn ensure(url: &str, dest: &Path) -> Result<PathBuf> {
     // Download beside the target and rename: a curl killed halfway must not
     // leave a truncated mp3 that every later run treats as cached.
     let tmp = dest.with_extension("part");
-    let status = Command::new("curl")
+    let status = crate::fetch::command("curl")
         .args(["-fsSL", "--max-time", "60", "-o"])
         .arg(&tmp)
         .arg(url)

@@ -115,8 +115,8 @@ pub fn fetch() {
 
 /// A child that dies with this process. The App sends SIGTERM to deen alone
 /// when it closes, and a curl left behind would keep appending to a .part the
-/// next fetch is also appending to.
-fn command(program: &str) -> Command {
+/// next fetch is also appending to. Audio and prayer curls use it too.
+pub fn command(program: &str) -> Command {
     extern "C" {
         fn prctl(option: i32, arg: u64, ...) -> i32;
     }

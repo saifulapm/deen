@@ -172,3 +172,34 @@ fn a_malformed_config_names_its_file() {
     let v: Value = serde_json::from_slice(&o.stdout).unwrap();
     assert!(v["error"].as_str().unwrap().contains("config.toml"), "{v}");
 }
+
+// Closing Deen kills deen; a curl it started must not keep asking aladhan for half a minute after the window is gone.
+#[test]
+fn killing_deen_ends_its_curl() {
+    let dir = tmp("kill");
+    let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", silent.local_addr().unwrap());
+    let mut deen = std::process::Command::new(env!("CARGO_BIN_EXE_deen"))
+        .args(["prayer", "--date", "2026-10-23"])
+        .env("DEEN_ALADHAN_URL", &url)
+        .env("XDG_CACHE_HOME", dir.join("cache"))
+        .env("DEEN_CONFIG", dir.join("none.toml"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let _held = silent.accept().unwrap();
+    let curls: Vec<u32> = std::fs::read_to_string(format!("/proc/{}/task/{}/children", deen.id(), deen.id()))
+        .unwrap()
+        .split_whitespace()
+        .map(|p| p.parse().unwrap())
+        .collect();
+    assert!(!curls.is_empty(), "deen started no curl");
+    deen.kill().unwrap();
+    deen.wait().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    for pid in curls {
+        let alive = std::fs::read_to_string(format!("/proc/{pid}/stat")).map(|s| !s.contains(") Z ")).unwrap_or(false);
+        assert!(!alive, "curl {pid} outlived deen");
+    }
+}

@@ -117,8 +117,9 @@ fn fetch(url: &str, dest: &Path) -> Result<()> {
     fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
     // Beside the target and renamed, so a curl killed halfway never leaves a
     // truncated month that later runs treat as cached.
-    let tmp = dest.with_extension("part");
-    let ok = Command::new("curl")
+    // Its own name per call: Prayer can ask for two days of one uncached month at once.
+    let tmp = dest.with_extension(format!("{}.part", std::process::id()));
+    let ok = crate::fetch::command("curl")
         .args(["-fsS", "--max-time", "30", "--retry", "2", "-o"])
         .arg(&tmp)
         .arg(url)
