@@ -9,7 +9,8 @@
 //! FAKE_CUT=<n> drops the connection once n body bytes have been served in
 //! total, and drops every later GET before replying, so a client's retries
 //! fail as well. FAKE_HEAD_NO_LENGTH=1 answers HEAD without Content-Length,
-//! the way a jsDelivr edge does on a cold cache miss. FAKE_LOG=<file> gets
+//! the way a jsDelivr edge does on a cold cache miss. FAKE_SLOW_MS=<ms>
+//! waits that long before each 256-byte chunk. FAKE_LOG=<file> gets
 //! one line per request:
 //! `<method> <path> <range or -> <body bytes served>`.
 
@@ -131,6 +132,9 @@ fn serve(mut stream: TcpStream, shared: &Shared) -> std::io::Result<()> {
         if let Some(c) = shared.cut {
             let before = shared.served.load(Ordering::SeqCst);
             take = take.min(c.saturating_sub(before));
+        }
+        if let Some(ms) = std::env::var("FAKE_SLOW_MS").ok().and_then(|s| s.parse().ok()) {
+            thread::sleep(std::time::Duration::from_millis(ms));
         }
         stream.write_all(&chunk[..take as usize])?;
         shared.served.fetch_add(take, Ordering::SeqCst);

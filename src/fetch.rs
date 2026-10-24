@@ -113,16 +113,16 @@ pub fn fetch() {
     }
 }
 
-/// A curl that dies with this process: when the App closes it kills deen, and
-/// a curl left behind would keep appending to a .part the next fetch is also
-/// appending to.
-fn curl() -> Command {
+/// A child that dies with this process. The App sends SIGTERM to deen alone
+/// when it closes, and a curl left behind would keep appending to a .part the
+/// next fetch is also appending to.
+fn command(program: &str) -> Command {
     extern "C" {
         fn prctl(option: i32, arg: u64, ...) -> i32;
     }
     const PR_SET_PDEATHSIG: i32 = 1;
     const SIGTERM: u64 = 15;
-    let mut cmd = Command::new("curl");
+    let mut cmd = Command::new(program);
     // SAFETY: prctl is async-signal-safe and touches only the child's own
     // process attributes.
     unsafe {
@@ -140,7 +140,7 @@ fn sizes(base: &str) -> Result<Sizes> {
     let heads: Vec<_> = names()
         .into_iter()
         .map(|n| {
-            let child = curl()
+            let child = command("curl")
                 .args(["-sSIL", "-o", "/dev/null", "-H", "Accept-Encoding: identity"])
                 .args(["-w", "%{http_code} %header{content-length}"])
                 .arg(format!("{base}/{n}"))
@@ -174,7 +174,7 @@ fn sizes(base: &str) -> Result<Sizes> {
 }
 
 fn ranged_size(base: &str, n: &str) -> Result<u64> {
-    let out = curl()
+    let out = command("curl")
         .args(["-sSL", "-r", "0-0", "-o", "/dev/null", "-w", "%{http_code} %header{content-range}"])
         .arg(format!("{base}/{n}"))
         .output()
@@ -230,7 +230,7 @@ fn run() -> Result<()> {
         }
         if len(&tmp) < size {
             // -C - asks for the bytes past what the .part already holds.
-            let mut child = curl()
+            let mut child = command("curl")
                 .args(["-fsSL", "--retry", "2", "--retry-delay", "1", "-C", "-", "-o"])
                 .arg(&tmp)
                 .arg(format!("{base}/{n}"))
@@ -260,7 +260,7 @@ fn run() -> Result<()> {
     }
 
     emit(json!({ "event": "converting" }));
-    let mut py = Command::new("python3")
+    let mut py = command("python3")
         .arg("-I")
         .arg("-")
         .arg(&dl)

@@ -239,6 +239,74 @@ fn a_missing_bangla_edition_is_not_an_error() {
     assert!(shown["hit"]["hadith"].get("bn").is_none());
 }
 
+/// Pids whose parent is `ppid`, from /proc.
+fn children_of(ppid: u32) -> Vec<u32> {
+    fs::read_dir("/proc")
+        .unwrap()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|pid| {
+            // The fields after the parenthesised name: state, then ppid.
+            fs::read_to_string(format!("/proc/{pid}/stat"))
+                .ok()
+                .and_then(|s| s.rsplit_once(") ").map(|(_, r)| r.to_string()))
+                .and_then(|r| r.split(' ').nth(1).and_then(|p| p.parse::<u32>().ok()))
+                == Some(ppid)
+        })
+        .collect()
+}
+
+/// Kill a fetch mid-download with `signal`: its curl must not outlive it and
+/// the bytes it saved must stay for the resume.
+fn killing_the_fetch_ends_its_curl(name: &str, signal: &str) {
+    let root = scratch(name);
+    let ed = root.join("editions");
+    fs::create_dir_all(&ed).unwrap();
+    editions(&ed);
+    let hadith = root.join("hadith");
+    let fake = Fake::start(&ed, &root.join("log"), &[("FAKE_SLOW_MS", "100".into())]);
+
+    let mut fetch = Command::new(env!("CARGO_BIN_EXE_deen"))
+        .args(["hadith", "fetch", "--json"])
+        .env("DEEN_HADITH", &hadith)
+        .env("DEEN_HADITH_URL", &fake.url)
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let part = hadith.join(".download/ara-bukhari.min.json.part");
+    let start = std::time::Instant::now();
+    while fs::metadata(&part).map(|m| m.len()).unwrap_or(0) == 0 {
+        assert!(start.elapsed().as_secs() < 10, "no bytes arrived");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let kids = children_of(fetch.id());
+    assert!(!kids.is_empty(), "the fetch has no curl child to check");
+
+    let killed = Command::new("kill")
+        .args([signal, &fetch.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    fetch.wait().unwrap();
+
+    let start = std::time::Instant::now();
+    while kids.iter().any(|k| Path::new(&format!("/proc/{k}")).exists()) {
+        assert!(start.elapsed().as_secs() < 2, "a child of the fetch outlived it: {kids:?}");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(fs::metadata(&part).unwrap().len() > 0);
+}
+
+#[test]
+fn sigterm_on_the_fetch_ends_its_curl_and_keeps_the_bytes() {
+    killing_the_fetch_ends_its_curl("sigterm", "-TERM");
+}
+
+#[test]
+fn sigkill_on_the_fetch_ends_its_curl_and_keeps_the_bytes() {
+    killing_the_fetch_ends_its_curl("sigkill", "-KILL");
+}
+
 #[test]
 fn a_head_without_content_length_still_gets_the_size() {
     let root = scratch("nolength");
