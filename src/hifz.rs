@@ -197,7 +197,8 @@ impl Deck {
     /// longest is the one you most need.
     pub fn due(&self, now: u64) -> Vec<(&String, &Card)> {
         let mut out: Vec<_> = self.cards.iter().filter(|(_, c)| c.due <= now).collect();
-        out.sort_by_key(|(_, c)| c.due);
+        // By due time, then as the mushaf runs: the keys are text, where "36:10" sorts before "36:2".
+        out.sort_by_key(|(r, c)| (c.due, crate::data::parse_ref(r).unwrap_or((u16::MAX, u16::MAX))));
         out
     }
 
@@ -216,6 +217,18 @@ mod tests {
     use super::*;
 
     const T: u64 = 1_700_000_000;
+
+    // The deck is keyed by text, where "36:10" sorts before "36:2" (#KTW5MYQM).
+    #[test]
+    fn cards_due_together_come_in_the_mushaf_order() {
+        let mut d = Deck::default();
+        for a in 1..=12 {
+            d.add(&format!("36:{a}"), T);
+        }
+        d.add("2:5", T);
+        let order: Vec<_> = d.due(T).into_iter().map(|(r, _)| r.as_str()).collect();
+        assert_eq!(order, ["2:5", "36:1", "36:2", "36:3", "36:4", "36:5", "36:6", "36:7", "36:8", "36:9", "36:10", "36:11", "36:12"]);
+    }
 
     #[test]
     fn a_new_card_is_due_at_once() {
