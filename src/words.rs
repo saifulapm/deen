@@ -36,9 +36,10 @@ pub struct Word {
     /// `001_001_001` — resolve against `https://audio.qurancdn.com/wbw/`.
     pub audio: String,
     pub segments: Vec<Segment>,
-    /// English meaning, transliteration and root letters ("س م و"), from
-    /// words.json. All null without it; `root` is also null for a particle.
+    /// English and Bangla meaning, transliteration and root letters ("س م و"),
+    /// from words.json. All null without it; `root` is also null for a particle.
     pub en: Option<String>,
+    pub bn: Option<String>,
     pub tr: Option<String>,
     pub root: Option<String>,
 }
@@ -48,6 +49,8 @@ pub struct Word {
 pub struct Extra {
     pub text: String,
     pub en: Option<String>,
+    #[serde(default)]
+    pub bn: Option<String>,
     pub tr: Option<String>,
     pub root: Option<String>,
     pub audio: String,
@@ -79,7 +82,7 @@ pub fn merge(v1: Vec<Word>, extra: Option<&AyahExtra>) -> Vec<Word> {
         return v1
             .into_iter()
             .zip(&extra.words)
-            .map(|(w, e)| Word { en: e.en.clone(), tr: e.tr.clone(), root: e.root.clone(), ..w })
+            .map(|(w, e)| Word { en: e.en.clone(), bn: e.bn.clone(), tr: e.tr.clone(), root: e.root.clone(), ..w })
             .collect();
     }
     extra
@@ -92,6 +95,7 @@ pub fn merge(v1: Vec<Word>, extra: Option<&AyahExtra>) -> Vec<Word> {
             audio: e.audio.clone(),
             segments: vec![Segment { t: e.text.clone(), r: None }],
             en: e.en.clone(),
+            bn: e.bn.clone(),
             tr: e.tr.clone(),
             root: e.root.clone(),
         })
@@ -152,6 +156,7 @@ pub fn split(surah: u16, ayah: u16, text: &str, taj: &[[usize; 3]], rules: &[Str
             audio: format!("{surah:03}_{ayah:03}_{n:03}"),
             segments,
             en: None,
+            bn: None,
             tr: None,
             root: None,
         });

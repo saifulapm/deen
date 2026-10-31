@@ -1,11 +1,11 @@
 {"1:1":{"juz":1,"words":[
-{"text":"بِسْمِ","en":"In (the) name","tr":"bis'mi","root":"س م و","audio":"001_001_001"},
-{"text":"ٱللَّهِ","en":"(of) Allah","tr":"l-lahi","root":"أ ل ه","audio":"001_001_002"},
-{"text":"ٱلرَّحْمَـٰنِ","en":"the Most Gracious","tr":"l-raḥmāni","root":"ر ح م","audio":"001_001_003"},
-{"text":"ٱلرَّحِيمِ","en":"the Most Merciful","tr":"l-raḥīmi","root":"ر ح م","audio":"001_001_004"}]},
+{"text":"بِسْمِ","en":"In (the) name","bn":"নামে","tr":"bis'mi","root":"س م و","audio":"001_001_001"},
+{"text":"ٱللَّهِ","en":"(of) Allah","bn":"আল্লাহর","tr":"l-lahi","root":"أ ل ه","audio":"001_001_002"},
+{"text":"ٱلرَّحْمَـٰنِ","en":"the Most Gracious","bn":"পরম করুণাময়","tr":"l-raḥmāni","root":"ر ح م","audio":"001_001_003"},
+{"text":"ٱلرَّحِيمِ","en":"the Most Merciful","bn":"অসীম দয়ালু","tr":"l-raḥīmi","root":"ر ح م","audio":"001_001_004"}]},
 "1:2":{"juz":1,"words":[
-{"text":"ألف","en":"one","tr":"alf","root":null,"audio":"001_002_001"},
-{"text":"باء","en":"two","tr":"baa","root":"ب","audio":"001_002_002"}]},
+{"text":"ألف","en":"one","bn":"এক","tr":"alf","root":null,"audio":"001_002_001"},
+{"text":"باء","en":"two","bn":"দুই","tr":"baa","root":"ب","audio":"001_002_002"}]},
 "1:3":{"juz":1,"words":[
-{"text":"ٱلرَّحْمَـٰنِ","en":"the Most Gracious","tr":"l-raḥmāni","root":null,"audio":"001_003_001"},
-{"text":"ٱلرَّحِيمِ","en":"the Most Merciful","tr":"l-raḥīmi","root":null,"audio":"001_003_002"}]}}
+{"text":"ٱلرَّحْمَـٰنِ","en":"the Most Gracious","bn":"পরম করুণাময়","tr":"l-raḥmāni","root":null,"audio":"001_003_001"},
+{"text":"ٱلرَّحِيمِ","en":"the Most Merciful","bn":"অসীম দয়ালু","tr":"l-raḥīmi","root":null,"audio":"001_003_002"}]}}

@@ -21,6 +21,7 @@ fn words_json_adds_meaning_transliteration_root_and_juz() {
     let v = run(&fixture("words.json"), &["api", "surah", "1"]);
     let w = &v["words"][0][0];
     assert_eq!(w["en"], "In (the) name");
+    assert_eq!(w["bn"], "নামে");
     assert_eq!(w["tr"], "bis'mi");
     assert_eq!(w["root"], "س م و");
     assert_eq!(v["ayahs"][0]["juz"], 1);
@@ -40,6 +41,7 @@ fn a_differing_count_takes_words_json_words() {
     assert_eq!(ws[1]["audio"], "001_002_002");
     assert_eq!(ws[1]["segments"][0]["t"], "باء");
     assert_eq!(ws[1]["root"], "ب");
+    assert_eq!(ws[1]["bn"], "দুই");
     assert!(ws[0]["root"].is_null());
 }
 
@@ -57,7 +59,7 @@ fn an_ayah_without_roots_keeps_null_roots() {
 fn no_words_json_gives_nulls() {
     let v = run("/nonexistent/words.json", &["api", "surah", "1"]);
     let w = &v["words"][0][0];
-    assert!(w["en"].is_null() && w["tr"].is_null() && w["root"].is_null());
+    assert!(w["en"].is_null() && w["bn"].is_null() && w["tr"].is_null() && w["root"].is_null());
     assert!(v["ayahs"][0]["juz"].is_null());
     assert_eq!(w["text"], "بِسْمِ");
     assert_eq!(v["words"][1].as_array().unwrap().len(), 4);
