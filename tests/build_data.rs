@@ -251,6 +251,7 @@ fn the_real_quran_reads_in_bangla_letters_only() {
     }
     assert_eq!(deen(&out, &["api", "ayah", "2:1"])["ayah"]["bn_pron"], "আলিফ লা-ম মী-ম");
     assert_eq!(deen(&out, &["api", "surahs"])["surahs"].as_array().unwrap().iter().filter(|s| s["bn"].as_str().is_some_and(|b| b.starts_with("সূরা "))).count(), 114);
+    assert_eq!(deen(&out, &["api", "surahs"])["surahs"][93]["bn"], "সূরা আশ-শারহ");
     let words: Value = serde_json::from_str(&fs::read_to_string(out.join("words.json")).unwrap()).unwrap();
     let all: Vec<_> = words.as_object().unwrap().values().flat_map(|a| a["words"].as_array().unwrap().iter()).collect();
     assert_eq!(all.len(), 77_429);
