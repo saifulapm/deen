@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build deen's per-word data and write it to stdout. Run once, like fetch-data.
+# Build deen's per-word data and write it to stdout. Run once; scripts/build-data
+# reads the file it made, kept as built, and adds each word's Bangla meaning.
 #
 #   scripts/fetch-words > ~/.local/share/deen/words.json
 #

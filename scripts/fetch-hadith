@@ -4,7 +4,7 @@
 #
 #   scripts/fetch-hadith ~/.local/share/deen/hadith
 #
-# A DIRECTORY AND NOT STDOUT, unlike fetch-data and fetch-duas, and the reason
+# A DIRECTORY AND NOT STDOUT, unlike build-data's files, and the reason
 # is size: this is 118 MB across ten collections in three languages, and search
 # has to reach it without parsing it. Each collection lands as JSONL — one
 # hadith per line — so a query streams the bytes and parses only the lines that

@@ -1,8 +1,8 @@
 //! The Quran, on disk.
 //!
 //! One JSON file holding all 114 surahs and all 6236 ayat in Uthmani script
-//! with Bangla and English translations, built once by the install script and
-//! never refreshed — unlike a film catalogue, the text does not change. That
+//! with Bangla and English translations, built by `scripts/build-data` from
+//! pinned sources and rebuilt only when those move — unlike a film catalogue, the text does not change. That
 //! is why there is no HTTP client in this crate and why every command works
 //! with the network down.
 
@@ -33,9 +33,9 @@ pub struct Ayah {
     pub s: u16,
     pub a: u16,
     /// Uthmani script, fully vowelled — Tanzil's, and it has to be: see
-    /// `scripts/fetch-data` for the two things that index into it.
+    /// `scripts/build-data` for the two things that index into it.
     pub ar: String,
-    /// Bangla — Muhiuddin Khan.
+    /// Bangla — Dr. Abu Bakr Muhammad Zakaria, his footnote marks stripped.
     pub bn: String,
     /// English — Sahih International.
     pub en: String,
@@ -52,7 +52,7 @@ pub struct Quran {
     #[serde(default)]
     pub rules: Vec<String>,
     /// The Basmala, carried once. It heads every surah but Al-Fatiha (where it
-    /// is ayah 1) and At-Tawbah (which has none), and `scripts/fetch-data`
+    /// is ayah 1) and At-Tawbah (which has none), and `scripts/build-data`
     /// strips it out of those ayat so it is not counted as part of them.
     #[serde(default)]
     pub basmala: String,

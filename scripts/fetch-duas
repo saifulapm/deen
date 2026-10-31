@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build deen's dua file and write it to stdout. Run once, like fetch-data — a
-# book from 1989 does not change either.
+# Build deen's dua file and write it to stdout. Run once — a book from 1989
+# does not change; scripts/build-data reads the file it made, kept as built.
 #
 #   scripts/fetch-duas > ~/.local/share/deen/duas.json
 #

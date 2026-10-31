@@ -6,7 +6,7 @@
 //!   * the word-by-word audio CDN, keyed `SSS_AAA_WWW` by word position
 //!   * the tajweed annotations, which are codepoint offsets into the ayah
 //!
-//! `scripts/fetch-data` explains why the text has to be Tanzil's for either to
+//! `scripts/build-data` explains why the text has to be Tanzil's for either to
 //! line up. Here the only rule is: words are whitespace-separated, counted from
 //! one, and nothing is dropped — dropping a token would silently shift every
 //! audio key after it.
@@ -44,7 +44,8 @@ pub struct Word {
     pub root: Option<String>,
 }
 
-/// One word as `scripts/fetch-words` stores it.
+/// One word as `scripts/build-data` stores it: as `scripts/fetch-words` built
+/// it, plus its Bangla meaning.
 #[derive(Debug, Deserialize)]
 pub struct Extra {
     pub text: String,

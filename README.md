@@ -69,15 +69,12 @@ cargo install --path .
 Then the data:
 
 ```sh
-# The text: Uthmani script with Bangla (Muhiuddin Khan) and English (Sahih
-# International), built once from alquran.cloud. It never changes, so nothing
-# refreshes it and every command works offline.
-mkdir -p ~/.local/share/deen
-deen-fetch-data > ~/.local/share/deen/quran.json   # see scripts/fetch-data
-
-# The duas: Hisn al-Muslim, from sunnah.com, cross-checked against a pinned
-# archive of the same page. Also fetched once.
-scripts/fetch-duas > ~/.local/share/deen/duas.json
+# The text, its word meanings and the duas: Uthmani script with Bangla
+# (Zakaria) and English (Sahih International), each word's meanings, and Hisn
+# al-Muslim, built from a directory of pinned sources whose layout heads
+# scripts/build-data. Nothing here reaches the network, and every command
+# works offline after.
+scripts/build-data <sources> ~/.local/share/deen
 
 # The hadith corpus: ten collections in three languages, from a pinned commit
 # of fawazahmed0/hadith-api (Unlicense). 104 MB, a few minutes, once.
