@@ -22,6 +22,7 @@ mod fetch;
 mod hadith;
 mod hifz;
 mod normalise;
+mod pron;
 mod prayer;
 mod words;
 
