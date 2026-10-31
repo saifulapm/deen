@@ -111,10 +111,15 @@ enum DuaCmd {
 enum HadithCmd {
     /// The collections, with their section titles and what each one carries.
     ///
-    /// There is no `list` beside it and there will not be: 36,000 narrations
-    /// is past the size where a screen can be handed the whole book, which is
-    /// the pattern `dua list` uses and this one cannot.
+    /// 36,000 narrations is past the size where a screen can be handed the
+    /// whole corpus, which is the pattern `dua list` uses; `list` hands it one
+    /// book at a time.
     Collections,
+    /// A collection's books, named in Bangla, with how many narrations each
+    /// holds; book 0 last, holding the narrations filed under no book.
+    Books { collection: String },
+    /// A book's narrations in order, those empty in every language left out.
+    List { collection: String, book: i64 },
     /// Search the corpus. The script you type in picks the language.
     Search {
         /// Words, unquoted — they are joined back into one phrase.
@@ -301,6 +306,15 @@ fn do_hadith(what: HadithCmd) -> Result<()> {
         HadithCmd::Collections => {
             let m = hadith::manifest()?;
             json!({ "source": m.source, "collections": m.collections })
+        }
+        HadithCmd::Books { collection } => {
+            let m = hadith::manifest()?;
+            let c = m.collection(&collection)?;
+            json!({ "collection": c.slug, "bn": c.bn, "name": c.name, "books": c.books })
+        }
+        HadithCmd::List { collection, book } => {
+            let (c, book, hadiths) = hadith::list(&collection, book)?;
+            json!({ "collection": c.slug, "bn": c.bn, "name": c.name, "book": book, "hadiths": hadiths })
         }
         HadithCmd::Search {
             query,

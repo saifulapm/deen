@@ -55,10 +55,28 @@ pub struct Hadith {
     pub in_book: Option<Value>,
 }
 
+/// A book (section) of a collection, as deen-data's names file names it.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Book {
+    pub n: i64,
+    pub bn: String,
+    pub en: String,
+    /// Narrations with text in some language; the empty ones are left out.
+    pub count: usize,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Collection {
     pub slug: String,
     pub name: String,
+    #[serde(default)]
+    pub bn: String,
+    /// Narrations with text, where `hadiths` counts every line on disk.
+    #[serde(default)]
+    pub count: usize,
+    /// In book order, book 0 last.
+    #[serde(default)]
+    pub books: Vec<Book>,
     pub hadiths: usize,
     /// How many have a Bangla translation, and how many were dropped for not
     /// having one — an entry with no Bengali script in it is a chapter heading,
@@ -80,6 +98,10 @@ pub struct Manifest {
 pub struct Hit {
     pub collection: String,
     pub name: String,
+    /// The collection's Bangla name, and the book the narration sits in.
+    pub bn: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub book: Option<Book>,
     /// The section title this narration sits under, when the collection has
     /// them — context a bare number does not give.
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -143,13 +165,23 @@ impl Collection {
     }
 
     fn hit(&self, h: Hadith) -> Hit {
+        let n = h.book.as_ref().and_then(Value::as_i64).unwrap_or(0);
         Hit {
             url: format!("https://sunnah.com/{}:{}", self.slug, h.n),
             section: self.section_of(&h),
             collection: self.slug.clone(),
             name: self.name.clone(),
+            bn: self.bn.clone(),
+            book: self.books.iter().find(|b| b.n == n).cloned(),
             hadith: h,
         }
+    }
+
+    pub fn book(&self, n: i64) -> Result<&Book> {
+        self.books.iter().find(|b| b.n == n).ok_or_else(|| {
+            let have: Vec<String> = self.books.iter().map(|b| b.n.to_string()).collect();
+            anyhow!("{} has no book {n} with narrations — have {}", self.slug, have.join(", "))
+        })
     }
 }
 
@@ -252,6 +284,36 @@ pub fn nth(slugs: &[&str], index: usize) -> Result<Hit> {
 pub fn count_of(slugs: &[&str]) -> Result<usize> {
     let m = manifest()?;
     slugs.iter().map(|s| m.collection(s).map(|c| c.hadiths)).sum()
+}
+
+impl Hadith {
+    /// Empty in every language: on disk to keep the line count, never listed.
+    fn is_empty(&self) -> bool {
+        self.ar.is_empty() && self.en.is_empty() && self.bn_raw.is_empty()
+    }
+}
+
+/// A book's narrations with text, in order. Only the lines that name the book
+/// are parsed; book 0 also holds the lines that name none.
+pub fn list(slug: &str, n: i64) -> Result<(Collection, Book, Vec<Hadith>)> {
+    let m = manifest()?;
+    let c = m.collection(slug)?;
+    let book = c.book(n)?.clone();
+    let path = dir().join(format!("{slug}.jsonl"));
+    let file = File::open(&path).with_context(|| format!("cannot read {}", path.display()))?;
+    let (comma, close) = (format!("\"book\":{n},"), format!("\"book\":{n}}}"));
+    let mut hadiths = Vec::new();
+    for line in BufReader::new(file).lines() {
+        let line = line?;
+        if !(line.contains(&comma) || line.contains(&close) || (n == 0 && !line.contains("\"book\":"))) {
+            continue;
+        }
+        let h: Hadith = serde_json::from_str(&line).with_context(|| format!("a record in {slug} is malformed"))?;
+        if !h.is_empty() {
+            hadiths.push(h);
+        }
+    }
+    Ok((c.clone(), book, hadiths))
 }
 
 /// One hadith by collection and number: `bukhari:5010`.

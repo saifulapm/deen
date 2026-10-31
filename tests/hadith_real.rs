@@ -83,3 +83,42 @@ fn the_raw_text_is_kept() {
     let h = &deen(&["hadith", "show", "bukhari:6114"])["hit"]["hadith"];
     assert!(split(h["bn_raw"].as_str().unwrap()).contains(&split("(আধুনিক প্রকাশনী- ৫৬৭৪, ইসলামিক ফাউন্ডেশন)")));
 }
+
+#[test]
+fn bukhari_has_97_named_books_then_the_rest() {
+    let books = deen(&["hadith", "books", "bukhari"]);
+    let books = books["books"].as_array().unwrap();
+    assert_eq!(books.len(), 98);
+    assert_eq!(books[0], serde_json::json!({ "n": 1, "bn": "ওহীর সূচনা", "en": "Revelation", "count": 7 }));
+    // 311 sit in book 0, 4 of them empty in every language (ruling B8RT511G).
+    assert_eq!(books[97], serde_json::json!({ "n": 0, "bn": "অন্যান্য", "en": "", "count": 307 }));
+}
+
+#[test]
+fn nasais_book_35_is_oaths_and_vows() {
+    let books = deen(&["hadith", "books", "nasai"]);
+    let b35 = books["books"].as_array().unwrap().iter().find(|b| b["n"] == 35).unwrap().clone();
+    assert_eq!(split(b35["bn"].as_str().unwrap()), split("মানত ও কসম"));
+    // Its book 0's narrations are empty in every language upstream, so it lists nothing.
+    assert!(books["books"].as_array().unwrap().iter().all(|b| b["n"] != 0));
+}
+
+#[test]
+fn bukhari_1_lists_narrations_1_to_7() {
+    let list = deen(&["hadith", "list", "bukhari", "1"]);
+    let ns: Vec<&str> = list["hadiths"].as_array().unwrap().iter().map(|h| h["n"].as_str().unwrap()).collect();
+    assert_eq!(ns, ["1", "2", "3", "4", "5", "6", "7"]);
+}
+
+#[test]
+fn muslims_empty_narrations_are_left_out_of_lists_and_search() {
+    let list = deen(&["hadith", "list", "muslim", "0"]);
+    let ns: Vec<&str> = list["hadiths"].as_array().unwrap().iter().map(|h| h["n"].as_str().unwrap()).collect();
+    assert!(!ns.is_empty());
+    assert!(!ns.contains(&"1") && !ns.contains(&"2"), "{ns:?}");
+    let collections = deen(&["hadith", "collections"]);
+    let muslim = collections["collections"].as_array().unwrap().iter().find(|c| c["slug"] == "muslim").unwrap().clone();
+    assert_eq!(muslim["count"], 7563 - 167);
+    let found = deen(&["hadith", "search", "--limit", "100000", "নিয়ত"]);
+    assert!(found["hits"].as_array().unwrap().iter().all(|h| h["collection"] != "muslim" || (h["hadith"]["n"] != "1" && h["hadith"]["n"] != "2")));
+}

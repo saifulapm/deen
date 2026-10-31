@@ -39,6 +39,7 @@ fn edition(c: &str, n: u32, text: &str) -> Value {
 fn snapshot(dir: &Path) -> u64 {
     fs::create_dir_all(dir.join("hadith")).unwrap();
     fs::write(dir.join("manifest.toml"), "# a snapshot\n").unwrap();
+    fs::write(dir.join("hadith-books-bn.toml"), "[collections]\nbukhari = \"সহীহ বুখারী\"\n").unwrap();
     let mut total = 0;
     for c in COLLECTIONS {
         let en = if c == "bukhari" {

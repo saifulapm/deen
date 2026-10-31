@@ -11,12 +11,18 @@
 # another manifest, as missing. `deen hadith fetch` embeds this file and pipes
 # it to `python3 -I -`, and reads the line it prints per collection.
 
-import json, os, re, shutil, sys
+import collections as counting, json, os, re, shutil, sys, tomllib
 
 src, out, fmt, collections = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4].split()
 
 # The upstream commit deen-data's manifest.toml names for the editions.
 SHA = "df57907be35291c91ad6a6691180e22ca9920784"
+
+# The Bangla names of the collections and their books, keyed by book number.
+NAMES = tomllib.load(open(f"{src}/hadith-books-bn.toml", "rb"))
+# Book 0 holds the narrations filed under no titled book; the names file may
+# name it, as it does Nasai's.
+OTHERS = "অন্যান্য"
 
 # A rebuild cut short must not leave the old collections.json over new files.
 if os.path.exists(f"{out}/collections.json"):
@@ -156,6 +162,7 @@ for c in collections:
 
     sections = {str(k): v for k, v in (en.get("metadata", {}).get("sections") or {}).items() if v}
     graded = 0
+    counts = counting.Counter()
     with open(f"{out}/{c}.jsonl", "w", encoding="utf-8") as f:
         for k in sorted(A, key=number_order):
             a, e = A[k], E[k]
@@ -178,11 +185,21 @@ for c in collections:
                 row["book"] = ref["book"]
             if ref.get("hadith") is not None:
                 row["in_book"] = ref["hadith"]
+            # A narration empty in every language is kept, so a line's position
+            # stays its index, but no book lists or counts it.
+            if row["ar"] or row["en"] or k in B:
+                counts[row.get("book", 0)] += 1
             f.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
 
+    names = NAMES.get("books", {}).get(c, {})
+    books = [{"n": n, "bn": names.get(str(n)) or (OTHERS if n == 0 else ""), "en": sections.get(str(n), ""), "count": counts[n]}
+             for n in sorted(counts, key=lambda n: (n == 0, n))]
     manifest.append({
         "slug": c,
         "name": (en.get("metadata", {}) or {}).get("name") or c,
+        "bn": NAMES.get("collections", {}).get(c, ""),
+        "count": sum(counts.values()),
+        "books": books,
         "hadiths": len(A),
         "bengali": len(B),
         "bengali_untranslated": bn_dropped,
