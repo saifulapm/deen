@@ -97,6 +97,7 @@ fn builds_the_quran_with_its_bangla_meaning_footnote_marks_stripped() {
         ((3, 96), "এক দুই [\u{200c}১] তিন"),
         ((14, 17), "এক না [২। আর দুই"),
         ((5, 3), "এক <b>দুই</b> তিন"),
+        ((4, 77), "এক না[ ৩]?’"),
     ]);
     let r = build(&src, &out);
     assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
@@ -111,6 +112,7 @@ fn builds_the_quran_with_its_bangla_meaning_footnote_marks_stripped() {
     assert_eq!(bn("3:96"), "এক দুই তিন");
     assert_eq!(bn("14:17"), "এক না। আর দুই");
     assert_eq!(bn("5:3"), "এক দুই তিন");
+    assert_eq!(bn("4:77"), "এক না?’");
 
     let quran: Value = serde_json::from_str(&fs::read_to_string(out.join("quran.json")).unwrap()).unwrap();
     assert_eq!(quran["ayahs"].as_array().unwrap().len(), 6236);
@@ -140,7 +142,7 @@ fn each_word_gains_its_bangla_meaning_and_hisn_al_muslim_is_kept_as_built() {
 fn a_footnote_mark_left_after_stripping_stops_the_build() {
     let dir = scratch("left");
     let (src, out) = (dir.join("src"), dir.join("out"));
-    sources(&src, &[((7, 1), "একটি [ক১] চিহ্ন [১২")]);
+    sources(&src, &[((7, 1), "একটি [ক১] চিহ্ন [ ১২")]);
     let r = build(&src, &out);
     assert!(!r.status.success());
     assert!(String::from_utf8_lossy(&r.stderr).contains("7:1"), "{}", String::from_utf8_lossy(&r.stderr));
@@ -155,6 +157,20 @@ fn a_word_count_that_differs_from_words_json_stops_the_build() {
     let path = src.join("words/quranwbw-bn.json");
     let mut wbw: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
     wbw["36"]["5"] = json!([["শুধু এক"]]);
+    fs::write(&path, wbw.to_string()).unwrap();
+    let r = build(&src, &out);
+    assert!(!r.status.success());
+    assert!(String::from_utf8_lossy(&r.stderr).contains("36:5"), "{}", String::from_utf8_lossy(&r.stderr));
+}
+
+#[test]
+fn a_word_with_an_empty_bangla_meaning_stops_the_build() {
+    let dir = scratch("empty");
+    let (src, out) = (dir.join("src"), dir.join("out"));
+    sources(&src, &[]);
+    let path = src.join("words/quranwbw-bn.json");
+    let mut wbw: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    wbw["36"]["5"] = json!([["শব্দ ১", " "]]);
     fs::write(&path, wbw.to_string()).unwrap();
     let r = build(&src, &out);
     assert!(!r.status.success());

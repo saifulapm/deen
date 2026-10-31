@@ -88,13 +88,14 @@ for s in range(2, 115):
 
 # Zakaria's meaning carries his footnote marks inline, " [১]" and a few typed
 # loosely: "[১।]" and "[২।" with the stop inside, "[‌১]" with a zero-width
-# non-joiner. The notes themselves are not in the source, so a mark only says
-# that a note exists somewhere else. Any mark these rules miss stops the build,
-# rather than being drawn as a stray bracket.
+# non-joiner, "[ ৩]" with a space. The notes themselves are not in the source,
+# so a mark only says that a note exists somewhere else. Any mark these rules
+# miss stops the build, rather than being drawn as a stray bracket.
 DIGITS = "[০-৯]+"
-MARK = re.compile(rf"\s*\[‌?{DIGITS}\]")
-MARK_STOP = re.compile(rf"\s*\[‌?{DIGITS}(।)\]?")
-LEFT = re.compile(r"\[‌?[০-৯0-9]")
+GAP = r"[\s‌]*"
+MARK = re.compile(rf"\s*\[{GAP}{DIGITS}{GAP}\]")
+MARK_STOP = re.compile(rf"\s*\[{GAP}{DIGITS}{GAP}(।)\]?")
+LEFT = re.compile(rf"\[{GAP}[০-৯0-9]")
 def meaning(text):
     text = MARK_STOP.sub(r"\1", MARK.sub("", text))
     return text.replace("<b>", "").replace("</b>", "")
@@ -155,7 +156,8 @@ with open(f"{tmp}/quran.json", "w", encoding="utf-8") as f:
 
 # Each word's Bangla meaning joins words.json by position, so the two have to
 # split every ayah into the same number of words; one that differs stops the
-# build rather than putting a meaning under the wrong word.
+# build rather than putting a meaning under the wrong word, and so does a word
+# whose meaning is blank.
 words = json.load(open(f"{src}/words/words.json", encoding="utf-8"))
 wbw = json.load(open(f"{src}/words/quranwbw-bn.json", encoding="utf-8"))
 for ref, ayah in words.items():
@@ -164,6 +166,8 @@ for ref, ayah in words.items():
     if len(got) != len(ayah["words"]):
         stop(f"{ref} has {len(ayah['words'])} words in words.json and {len(got)} Bangla meanings")
     for w, m in zip(ayah["words"], got):
+        if not m.strip():
+            stop(f"{ref} has a word with no Bangla meaning")
         w["bn"] = m
 with open(f"{tmp}/words.json", "w", encoding="utf-8") as f:
     json.dump(words, f, ensure_ascii=False, separators=(",", ":"))
