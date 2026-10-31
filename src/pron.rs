@@ -205,8 +205,9 @@ enum Tok {
     C(&'static str),
     /// A consonant doubled by shadda.
     D(&'static str),
-    /// ي read as a consonant: ইয় at a word's start or after a consonant, য় after a vowel.
-    Y,
+    /// ي read as a consonant: ইয় at a word's start or after a consonant, য় after a vowel;
+    /// `fresh` writes it as at a start, after a one-letter particle (وَيُقِيمُوا۟).
+    Y { fresh: bool },
     /// ‘ for ع, ’ for a hamza, and NUL for a hamza written as nothing.
     G(char),
     /// A vowel; `sila` marks the long vowel of a pronoun's small waw or ya.
@@ -313,6 +314,12 @@ fn allah_lam(w: &[Unit], i: usize) -> bool {
         && (i + 2 == w.len() || (i + 3 == w.len() && w[i + 2].ch == 'م' && w[i + 2].has(SHADDA)))
 }
 
+/// A word opening with a one-letter particle: وَ فَ بِ لِ كَ with its vowel,
+/// and سَ when `sa` (before a verb's ي, not a root's hamza as in سَأَلَ).
+fn particle(w: &[Unit], sa: bool) -> bool {
+    w.len() > 2 && (matches!(w[0].ch, 'و' | 'ف' | 'ب' | 'ل' | 'ك') || (sa && w[0].ch == 'س')) && w[0].has(FATHA | KASRA)
+}
+
 /// One word's tokens. `voiced` reads a first ٱ (an ayah's first word, or a
 /// word alone); otherwise it is silent and the word joins the one before.
 fn tokens(w: &[Unit], voiced: bool) -> Vec<Tok> {
@@ -393,11 +400,11 @@ fn tokens(w: &[Unit], voiced: bool) -> Vec<Tok> {
             'ع' => Tok::G('‘'),
             // No ’ for a hamza right after a one-letter particle (وَإِيَّاكَ,
             // فَإِنَّ, بِإِذْنِهِۦ): books read it as the word's start.
-            _ if u.hamza() && i == 1 && matches!(w[0].ch, 'و' | 'ف' | 'ب' | 'ل' | 'ك') && w[0].has(FATHA | KASRA) => Tok::G('\0'),
+            _ if u.hamza() && i == 1 && particle(w, false) => Tok::G('\0'),
             _ if u.hamza() => Tok::G('’'),
             'ة' => Tok::T,
             'ي' | 'ى' if doubled && !out.is_empty() => Tok::Lit(if matches!(pv, Some(V::I | V::LongI)) { "য়্য" } else { "ইয়্য" }),
-            'ي' | 'ى' => Tok::Y,
+            'ي' | 'ى' => Tok::Y { fresh: i == 1 && particle(w, true) },
             'و' if doubled && !out.is_empty() => Tok::Lit(match pv {
                 Some(V::U) => "ওয়",
                 Some(V::A) => "উওয়",
@@ -507,8 +514,8 @@ fn render(toks: &[Tok], mut last: Last, pausal: bool, out: &mut String) {
                 out.push_str(g);
                 last = Last::Cons;
             }
-            Tok::Y => {
-                let after_vowel = matches!(last, Last::Vowel | Last::Gutt);
+            Tok::Y { fresh } => {
+                let after_vowel = !fresh && matches!(last, Last::Vowel | Last::Gutt);
                 if !after_vowel && matches!(toks.get(k + 1), Some(Tok::V { v: V::U | V::LongU, .. })) {
                     // yu and yū are both written ইউ (ইউসরা-, ইউলাদ).
                     out.push_str("ইউ");
@@ -847,6 +854,8 @@ mod tests {
     fn a_hamza_after_a_one_letter_particle_takes_no_mark() {
         assert_eq!(word("وَإِيَّاكَ").unwrap(), "ওয়াইয়্যা-কা");
         assert_eq!(word("سَأَلَ").unwrap(), "সা’আলা");
+        assert_eq!(word("وَيُقِيمُوا۟").unwrap(), "ওয়াইউক্বীমূ");
+        assert_eq!(word("سَيَصْلَىٰ").unwrap(), "সাইয়াসলা-");
     }
 
     #[test]
