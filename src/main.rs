@@ -70,6 +70,12 @@ enum Cmd {
         #[command(subcommand)]
         what: HifzCmd,
     },
+    /// Give every ayah and word in a data directory its Bangla pronunciation.
+    ///
+    /// `scripts/build-data` runs it on the quran.json and words.json it has
+    /// just written; it stops, naming the ayah and the character, on a code
+    /// point the pronunciation has no rule for.
+    Pron { dir: std::path::PathBuf },
     /// Today's prayer times (Hanafi Asr) for the city in the config.
     ///
     /// Caches the month under ~/.cache/deen/prayer, so it works offline.
@@ -188,6 +194,11 @@ fn run() -> Result<()> {
         Cmd::Hadith { what } => do_hadith(what),
         Cmd::Hifz { what } => do_hifz(what),
         Cmd::Prayer { date, refresh } => prayer::run(date, refresh),
+        Cmd::Pron { dir } => {
+            pron::write_data(&dir)?;
+            println!("{}", json!({ "ok": true }));
+            Ok(())
+        }
     }
 }
 

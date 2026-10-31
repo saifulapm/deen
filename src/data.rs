@@ -37,6 +37,9 @@ pub struct Ayah {
     pub ar: String,
     /// Bangla — Dr. Abu Bakr Muhammad Zakaria, his footnote marks stripped.
     pub bn: String,
+    /// How the Arabic is read, in Bangla letters, written by `pron` when the
+    /// data is built.
+    pub bn_pron: String,
     /// English — Sahih International.
     pub en: String,
     /// Tajweed spans as `[start, end, rule_index]` over `ar`'s codepoints,

@@ -24,6 +24,8 @@ fn words_json_adds_meaning_transliteration_root_and_juz() {
     assert_eq!(w["bn"], "নামে");
     assert_eq!(w["tr"], "bis'mi");
     assert_eq!(w["root"], "س م و");
+    assert_eq!(w["bn_pron"], "বিসমি");
+    assert_eq!(v["ayahs"][0]["bn_pron"], "p");
     assert_eq!(v["ayahs"][0]["juz"], 1);
     // v1's tokens are kept when the counts agree.
     assert_eq!(w["text"], "بِسْمِ");

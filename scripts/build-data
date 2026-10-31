@@ -6,7 +6,8 @@
 #   scripts/build-data <sources> <output directory>
 #
 # It writes quran.json, words.json and duas.json into the output directory,
-# from these files of the sources tree:
+# each ayah and word with its Bangla pronunciation from `deen pron`, run as
+# DEEN_BIN (deen on PATH when unset), from these files of the sources tree:
 #
 #   quran/uthmani.txt               Tanzil Uthmani, "surah|ayah|text"
 #   quran/tajweed.json              cpfair's tajweed spans over that exact file
@@ -178,6 +179,10 @@ PY
 python3 -I -c 'import json, sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$src/duas/hisn.json" \
   || { echo "build-data: duas/hisn.json is not JSON" >&2; exit 1; }
 cp "$src/duas/hisn.json" "$tmp/duas.json"
+
+# The pronunciation is deen's own engine, so it runs on the files above before
+# any of them lands; a code point it has no rule for stops the build here.
+"${DEEN_BIN:-deen}" pron "$tmp" >/dev/null || { echo "build-data: deen pron failed" >&2; exit 1; }
 
 # Each file lands by a rename, so a reader never opens one half written.
 for f in quran words duas; do

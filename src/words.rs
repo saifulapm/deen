@@ -42,6 +42,8 @@ pub struct Word {
     pub bn: Option<String>,
     pub tr: Option<String>,
     pub root: Option<String>,
+    /// The word read alone, in Bangla letters.
+    pub bn_pron: Option<String>,
 }
 
 /// One word as `scripts/build-data` stores it: as `scripts/fetch-words` built
@@ -55,6 +57,8 @@ pub struct Extra {
     pub tr: Option<String>,
     pub root: Option<String>,
     pub audio: String,
+    #[serde(default)]
+    pub bn_pron: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,7 +87,14 @@ pub fn merge(v1: Vec<Word>, extra: Option<&AyahExtra>) -> Vec<Word> {
         return v1
             .into_iter()
             .zip(&extra.words)
-            .map(|(w, e)| Word { en: e.en.clone(), bn: e.bn.clone(), tr: e.tr.clone(), root: e.root.clone(), ..w })
+            .map(|(w, e)| Word {
+                en: e.en.clone(),
+                bn: e.bn.clone(),
+                tr: e.tr.clone(),
+                root: e.root.clone(),
+                bn_pron: e.bn_pron.clone(),
+                ..w
+            })
             .collect();
     }
     extra
@@ -99,6 +110,7 @@ pub fn merge(v1: Vec<Word>, extra: Option<&AyahExtra>) -> Vec<Word> {
             bn: e.bn.clone(),
             tr: e.tr.clone(),
             root: e.root.clone(),
+            bn_pron: e.bn_pron.clone(),
         })
         .collect()
 }
@@ -160,6 +172,7 @@ pub fn split(surah: u16, ayah: u16, text: &str, taj: &[[usize; 3]], rules: &[Str
             bn: None,
             tr: None,
             root: None,
+            bn_pron: None,
         });
     }
     out

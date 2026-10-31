@@ -26,6 +26,12 @@ fn scratch(name: &str) -> PathBuf {
     p
 }
 
+/// A number written in Arabic letters, one a digit, since the pronunciation
+/// stops on a digit inside an ayah.
+fn letters(n: u16) -> String {
+    n.to_string().chars().map(|d| "بتثجحخدذرز".chars().nth(d as usize - '0' as usize).unwrap()).collect()
+}
+
 fn ayat() -> impl Iterator<Item = (u16, u16)> {
     (1..=114u16).flat_map(|s| (1..=COUNTS[s as usize - 1]).map(move |a| (s, a)))
 }
@@ -40,7 +46,7 @@ fn sources(dir: &Path, bn: &[((u16, u16), &str)]) {
     let (mut zakaria, mut words) = (Vec::new(), serde_json::Map::new());
     let mut wbw = serde_json::Map::new();
     for (s, a) in ayat() {
-        let text = format!("كَلِمَة{s} آيَة{a}");
+        let text = format!("كَلِمَة{} آيَة{}", letters(s), letters(a));
         let glued = if a == 1 && s != 1 && s != 9 { format!("{BASMALA} {text}") } else { text.clone() };
         tanzil.push_str(&format!("{s}|{a}|{glued}\n"));
         let meaning = bn.iter().find(|(r, _)| *r == (s, a)).map_or(format!("অর্থ {s}:{a}"), |(_, t)| t.to_string());
@@ -68,6 +74,7 @@ fn sources(dir: &Path, bn: &[((u16, u16), &str)]) {
 
 fn build(src: &Path, out: &Path) -> Output {
     Command::new(concat!(env!("CARGO_MANIFEST_DIR"), "/scripts/build-data"))
+        .env("DEEN_BIN", env!("CARGO_BIN_EXE_deen"))
         .arg(src)
         .arg(out)
         .output()
@@ -117,8 +124,8 @@ fn builds_the_quran_with_its_bangla_meaning_footnote_marks_stripped() {
     let quran: Value = serde_json::from_str(&fs::read_to_string(out.join("quran.json")).unwrap()).unwrap();
     assert_eq!(quran["ayahs"].as_array().unwrap().len(), 6236);
     // The Basmala is cut from each first ayah and carried once, as before.
-    assert_eq!(quran["basmala"], "كَلِمَة1 آيَة1");
-    assert_eq!(deen(&out, &["api", "ayah", "2:1"])["ayah"]["ar"], "كَلِمَة2 آيَة1");
+    assert_eq!(quran["basmala"], "كَلِمَةت آيَةت");
+    assert_eq!(deen(&out, &["api", "ayah", "2:1"])["ayah"]["ar"], "كَلِمَةث آيَةت");
     assert_eq!(quran["surahs"][93]["en"], "Surah-94");
     // 2:1's span sat 40 code points in, past the 38 of the Basmala and its space.
     assert_eq!(quran["ayahs"][7]["taj"], json!([[1, 2, 0]]));
@@ -135,6 +142,9 @@ fn each_word_gains_its_bangla_meaning_and_hisn_al_muslim_is_kept_as_built() {
     assert_eq!(v["words"][0]["bn"], "শব্দ ১");
     assert_eq!(v["words"][1]["bn"], "শব্দ ২");
     assert_eq!(v["words"][1]["en"], "word 2");
+    // 94:6 is كَلِمَةذح آيَةد in these sources.
+    assert_eq!(v["ayah"]["bn_pron"], "কালিমাতযহ আ-য়াতদ");
+    assert_eq!(v["words"][0]["bn_pron"], "কালিমাতযহ");
     assert_eq!(fs::read(out.join("duas.json")).unwrap(), fs::read(src.join("duas/hisn.json")).unwrap());
 }
 
@@ -175,4 +185,63 @@ fn a_word_with_an_empty_bangla_meaning_stops_the_build() {
     let r = build(&src, &out);
     assert!(!r.status.success());
     assert!(String::from_utf8_lossy(&r.stderr).contains("36:5"), "{}", String::from_utf8_lossy(&r.stderr));
+}
+
+#[test]
+fn every_ayah_and_word_gains_its_pronunciation() {
+    let dir = scratch("pron");
+    let (src, out) = (dir.join("src"), dir.join("out"));
+    sources(&src, &[]);
+    let r = build(&src, &out);
+    assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+    let quran: Value = serde_json::from_str(&fs::read_to_string(out.join("quran.json")).unwrap()).unwrap();
+    let blank = quran["ayahs"].as_array().unwrap().iter().filter(|a| a["bn_pron"].as_str().unwrap_or("").is_empty()).count();
+    assert_eq!(blank, 0);
+    let words: Value = serde_json::from_str(&fs::read_to_string(out.join("words.json")).unwrap()).unwrap();
+    let all: Vec<_> = words.as_object().unwrap().values().flat_map(|a| a["words"].as_array().unwrap().iter()).collect();
+    assert_eq!(all.len(), 6236 * 2);
+    assert!(all.iter().all(|w| !w["bn_pron"].as_str().unwrap_or("").is_empty()));
+}
+
+#[test]
+fn a_code_point_with_no_rule_stops_the_build_naming_the_ayah() {
+    let dir = scratch("unknown");
+    let (src, out) = (dir.join("src"), dir.join("out"));
+    sources(&src, &[]);
+    let path = src.join("quran/uthmani.txt");
+    let text = fs::read_to_string(&path).unwrap().replace("36|5|كَلِمَة", "36|5|كَلِمَة\u{08F0}");
+    fs::write(&path, text).unwrap();
+    let r = build(&src, &out);
+    assert!(!r.status.success());
+    let err = String::from_utf8_lossy(&r.stderr);
+    assert!(err.contains("36:5") && err.contains("U+08F0"), "{err}");
+    assert!(!out.join("quran.json").exists());
+}
+
+/// The deen-data checkout the real-data tests build from: DEEN_SOURCES, or
+/// the deen-data directory next to this crate.
+fn checkout() -> PathBuf {
+    let dir = std::env::var_os("DEEN_SOURCES").map_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../deen-data"), PathBuf::from);
+    assert!(dir.join("manifest.toml").exists(), "no deen-data checkout at {}: set DEEN_SOURCES", dir.display());
+    dir
+}
+
+#[test]
+fn the_real_quran_reads_in_bangla_letters_only() {
+    let out = scratch("real").join("out");
+    let r = build(&checkout(), &out);
+    assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+    let quran: Value = serde_json::from_str(&fs::read_to_string(out.join("quran.json")).unwrap()).unwrap();
+    let ayahs = quran["ayahs"].as_array().unwrap();
+    assert_eq!(ayahs.len(), 6236);
+    let foreign = |c: char| c.is_ascii_alphabetic() || ('\u{0600}'..='\u{06FF}').contains(&c);
+    for a in ayahs {
+        let pron = a["bn_pron"].as_str().unwrap();
+        assert!(!pron.is_empty() && !pron.chars().any(foreign), "{}:{} reads {pron:?}", a["s"], a["a"]);
+    }
+    assert_eq!(deen(&out, &["api", "ayah", "2:1"])["ayah"]["bn_pron"], "আলিফ লা-ম মী-ম");
+    let words: Value = serde_json::from_str(&fs::read_to_string(out.join("words.json")).unwrap()).unwrap();
+    let all: Vec<_> = words.as_object().unwrap().values().flat_map(|a| a["words"].as_array().unwrap().iter()).collect();
+    assert_eq!(all.len(), 77_429);
+    assert!(all.iter().all(|w| !w["bn_pron"].as_str().unwrap_or("").is_empty()));
 }

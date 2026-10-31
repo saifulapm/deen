@@ -8,7 +8,10 @@
 //! drafts a surah's Bangla name from its Arabic one. Each refuses a code point
 //! it has no rule for, rather than writing an ayah with a letter missing.
 
-use std::fmt;
+use std::{fmt, fs, path::Path};
+
+use anyhow::{anyhow, Context, Result};
+use serde_json::Value;
 
 /// A code point the engine has no rule for.
 #[derive(Debug, PartialEq)]
@@ -120,8 +123,6 @@ fn parse(text: &str) -> Result<Vec<Vec<Unit>>, Unknown> {
             if let Some(u) = cur.last_mut() {
                 u.m |= m;
             }
-        } else if letter(c) {
-            cur.push(Unit { ch: c, m: 0 });
         } else if c == 'آ' {
             // An alif madda after a fatha is that fatha's long ā; anywhere
             // else it is a hamza and a long ā.
@@ -131,6 +132,8 @@ fn parse(text: &str) -> Result<Vec<Vec<Unit>>, Unknown> {
                 cur.push(Unit { ch: 'ء', m: FATHA });
                 cur.push(Unit { ch: 'ا', m: 0 });
             }
+        } else if letter(c) {
+            cur.push(Unit { ch: c, m: 0 });
         } else if !ignored(c) {
             return Err(Unknown(c));
         }
@@ -200,7 +203,7 @@ enum Tok {
     D(&'static str),
     /// ي read as a consonant: ইয় at a word's start or after a consonant, য় after a vowel.
     Y,
-    /// ‘ for ع, ’ for a hamza.
+    /// ‘ for ع, ’ for a hamza, and NUL for a hamza written as nothing.
     G(char),
     /// A vowel; `sila` marks the long vowel of a pronoun's small waw or ya.
     V { v: V, sila: bool },
@@ -353,12 +356,12 @@ fn tokens(w: &[Unit], voiced: bool) -> Vec<Tok> {
                         lengthen(&mut out, &mut pv, to);
                         continue;
                     }
-                    ('ى', Some(V::A)) => {
+                    ('ى', Some(V::A)) if !u.has(SUKUN) => {
                         lengthen(&mut out, &mut pv, V::LongA);
                         continue;
                     }
                     ('ى', _) if i > 0 && w[i - 1].has(FATHATAN) => continue,
-                    ('ي', Some(V::A)) if u.has(SUKUN) => {
+                    ('ي' | 'ى', Some(V::A)) if u.has(SUKUN) => {
                         lengthen(&mut out, &mut pv, V::Ai);
                         pv = None;
                         continue;
@@ -384,6 +387,9 @@ fn tokens(w: &[Unit], voiced: bool) -> Vec<Tok> {
         let doubled = u.has(SHADDA);
         let tok = match u.ch {
             'ع' => Tok::G('‘'),
+            // No ’ for a hamza right after a one-letter particle (وَإِيَّاكَ,
+            // فَإِنَّ, بِإِذْنِهِۦ): books read it as the word's start.
+            _ if u.hamza() && i == 1 && matches!(w[0].ch, 'و' | 'ف' | 'ب' | 'ل' | 'ك') && w[0].has(FATHA | KASRA) => Tok::G('\0'),
             _ if u.hamza() => Tok::G('’'),
             'ة' => Tok::T,
             'ي' | 'ى' if doubled && !out.is_empty() => Tok::Lit(if matches!(pv, Some(V::I | V::LongI)) { "য়্য" } else { "ইয়্য" }),
@@ -471,7 +477,11 @@ fn base(g: &str) -> &str {
 }
 
 fn render(toks: &[Tok], mut last: Last, pausal: bool, out: &mut String) {
+    let mut skip = false;
     for (k, t) in toks.iter().enumerate() {
+        if std::mem::take(&mut skip) {
+            continue;
+        }
         match t {
             Tok::C(g) => {
                 out.push_str(g);
@@ -496,14 +506,16 @@ fn render(toks: &[Tok], mut last: Last, pausal: bool, out: &mut String) {
             Tok::Y => {
                 let after_vowel = matches!(last, Last::Vowel | Last::Gutt);
                 if !after_vowel && matches!(toks.get(k + 1), Some(Tok::V { v: V::U | V::LongU, .. })) {
-                    // yu is written ইউ (ইউসরা-), not ইয়ু.
-                    out.push('ই');
+                    // yu and yū are both written ইউ (ইউসরা-, ইউলাদ).
+                    out.push_str("ইউ");
+                    skip = true;
                     last = Last::Vowel;
                 } else {
                     out.push_str(if after_vowel { "য়" } else { "ইয়" });
                     last = Last::Cons;
                 }
             }
+            Tok::G('\0') => last = Last::Gutt,
             Tok::G(g) => {
                 if *g == '’' && last == Last::Start {
                     continue;
@@ -701,6 +713,44 @@ pub fn surah_name(text: &str) -> Result<String, Unknown> {
     Ok(lexicon(out))
 }
 
+/// Give every ayah of `dir`'s quran.json and every word of its words.json
+/// their `bn_pron`, writing both files back. `scripts/build-data` runs this
+/// on the files it has just written, before they replace the old ones.
+pub fn write_data(dir: &Path) -> Result<()> {
+    let read = |name: &str| -> Result<Value> {
+        let path = dir.join(name);
+        let raw = fs::read_to_string(&path).with_context(|| format!("cannot read {}", path.display()))?;
+        serde_json::from_str(&raw).with_context(|| format!("{} is not JSON", path.display()))
+    };
+    let no_rule = |at: String, e: Unknown| anyhow!("{at} holds {e}, which the pronunciation has no rule for");
+
+    let mut quran = read("quran.json")?;
+    for a in quran["ayahs"].as_array_mut().context("quran.json has no ayahs")? {
+        let at = format!("{}:{}", a["s"], a["a"]);
+        let pron = ayah(a["ar"].as_str().unwrap_or_default()).map_err(|e| no_rule(at.clone(), e))?;
+        if pron.is_empty() {
+            return Err(anyhow!("{at} reads as nothing"));
+        }
+        a["bn_pron"] = Value::from(pron);
+    }
+
+    let mut words = read("words.json")?;
+    for (at, ayah) in words.as_object_mut().context("words.json is not an object")? {
+        for (k, w) in ayah["words"].as_array_mut().into_iter().flatten().enumerate() {
+            let pron = word(w["text"].as_str().unwrap_or_default()).map_err(|e| no_rule(format!("{at} word {}", k + 1), e))?;
+            if pron.is_empty() {
+                return Err(anyhow!("{at} word {} reads as nothing", k + 1));
+            }
+            w["bn_pron"] = Value::from(pron);
+        }
+    }
+
+    for (name, v) in [("quran.json", &quran), ("words.json", &words)] {
+        fs::write(dir.join(name), v.to_string()).with_context(|| format!("cannot write {name}"))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -739,6 +789,8 @@ mod tests {
         assert_eq!(word("ٱلْعُسْرِ").unwrap(), "আল‘উসরি");
         assert_eq!(word("يُسْرًۭا").unwrap(), "ইউসরান");
         assert_eq!(word("۞ إِنَّ").unwrap(), "ইন্না");
+        assert_eq!(word("إِنَّآ").unwrap(), "ইন্না-");
+        assert_eq!(word("آيَةٌ").unwrap(), "আ-য়াতুন");
     }
 
     #[test]
@@ -769,6 +821,14 @@ mod tests {
         assert_eq!(word("عَلَيْهِمْ").unwrap(), "‘আলাইহিম");
         assert_eq!(word("إِيَّاكَ").unwrap(), "ইয়্যা-কা");
         assert_eq!(word("ٱلْقَيُّومُ").unwrap(), "আলক্বাইয়্যূমু");
+        assert_eq!(word("بِشَىْءٍ").unwrap(), "বিশাই’ইন");
+        assert_eq!(word("يُولَدْ").unwrap(), "ইউলাদ");
+    }
+
+    #[test]
+    fn a_hamza_after_a_one_letter_particle_takes_no_mark() {
+        assert_eq!(word("وَإِيَّاكَ").unwrap(), "ওয়াইয়্যা-কা");
+        assert_eq!(word("سَأَلَ").unwrap(), "সা’আলা");
     }
 
     #[test]
