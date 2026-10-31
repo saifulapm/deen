@@ -105,8 +105,10 @@ impl Unit {
         }
     }
 
+    /// A hamza: on its own, on a carrier, or a bare alif written with a
+    /// vowel (80:25's اَنَّا in quran.com's words).
     fn hamza(&self) -> bool {
-        matches!(self.ch, 'ء' | 'أ' | 'إ' | 'ؤ' | 'ئ')
+        matches!(self.ch, 'ء' | 'أ' | 'إ' | 'ؤ' | 'ئ') || (self.ch == 'ا' && self.has(VOWELS))
     }
 }
 
@@ -282,11 +284,19 @@ fn muqattaa(w: &[Unit]) -> Option<String> {
 }
 
 /// How a word's first ٱ is read when it is voiced: আ before the article's
-/// lam, উ when the letter after the next is read with a damma, else ই.
+/// lam (ٱلْ, or the shadda'd lam of ٱلَّذِى and ٱلَّيْلِ), উ when the letter
+/// read after the silent one takes a damma (ٱدْعُ; with a shadda that letter
+/// is the doubled one, ٱتَّقُوا۟), else ই, as always for ٱبْن and ٱسْم.
 fn wasl_vowel(w: &[Unit]) -> V {
-    if w.len() > 1 && w[1].ch == 'ل' && !w[1].has(VOWELS) {
-        V::A
-    } else if w.len() > 2 && w[2].has(DAMMA) {
+    let Some(first) = w.get(1) else { return V::I };
+    if first.ch == 'ل' && (!first.has(VOWELS) || first.has(SHADDA)) {
+        return V::A;
+    }
+    if w.len() > 2 && matches!((w[1].ch, w[2].ch), ('ب', 'ن') | ('س', 'م')) {
+        return V::I;
+    }
+    let next = if first.has(SHADDA) { Some(first) } else { w.get(2) };
+    if next.is_some_and(|u| u.has(DAMMA)) {
         V::U
     } else {
         V::I
@@ -417,9 +427,6 @@ fn tokens(w: &[Unit], voiced: bool) -> Vec<Tok> {
         };
         out.push(tok);
         pv = None;
-        if u.has(SMALL_NOON) {
-            out.push(Tok::C("ন"));
-        }
         let mut v = u.vowel();
         if allah_lam(w, i) {
             v = Some(V::LongA);
@@ -445,6 +452,10 @@ fn tokens(w: &[Unit], voiced: bool) -> Vec<Tok> {
                 out.push(Tok::N);
                 pv = None;
             }
+        }
+        if u.has(SMALL_NOON) {
+            out.push(Tok::C("ন"));
+            pv = None;
         }
     }
     out
@@ -807,6 +818,30 @@ mod tests {
     fn hamzat_al_wasl_is_voiced_at_an_ayahs_start() {
         assert_eq!(ayah("ٱهْدِنَا ٱلصِّرَٰطَ ٱلْمُسْتَقِيمَ").unwrap(), "ইহদিনাস্সিরা-ত্বালমুসতাক্বীম");
         assert_eq!(ayah("ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَٰلَمِينَ").unwrap(), "আলহামদু লিল্লা-হি রব্বিল‘আ-লামীন");
+    }
+
+    #[test]
+    fn the_article_is_voiced_with_a_even_on_a_shadda_lam() {
+        assert_eq!(ayah("ٱلَّذِينَ يُؤْمِنُونَ").unwrap(), "আল্লাযীনা ইউ’মিনূন");
+        assert_eq!(word("ٱلَّيْلِ").unwrap(), "আল্লাইলি");
+    }
+
+    #[test]
+    fn a_wasl_reads_the_vowel_after_its_silent_letter() {
+        assert_eq!(word("ٱتَّقُوا۟").unwrap(), "ইত্তাক্বূ");
+        assert_eq!(word("ٱدْعُ").unwrap(), "উদ‘উ");
+        assert_eq!(word("ٱبْنُ").unwrap(), "ইবনু");
+        assert_eq!(word("ٱسْمُهُۥ").unwrap(), "ইসমুহূ");
+    }
+
+    #[test]
+    fn a_bare_alif_with_a_vowel_is_a_hamza() {
+        assert_eq!(word("اَنَّا").unwrap(), "আন্না-");
+    }
+
+    #[test]
+    fn the_small_noon_is_read_after_its_letters_vowel() {
+        assert_eq!(word("نُۨجِى").unwrap(), "নুনজী");
     }
 
     #[test]
