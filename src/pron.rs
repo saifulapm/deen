@@ -864,4 +864,104 @@ mod tests {
         assert_eq!(surah_name("سُورَةُ البَقَرَةِ").unwrap(), "সূরা আল-বাক্বারাহ");
         assert_eq!(surah_name("سُورَةُ \u{0627}\u{0653}لِ عِمۡرَانَ").unwrap(), "সূরা আ-ল ‘ইমরা-ন");
     }
+
+    /// One CSV record per row, its quoted fields allowed commas, newlines
+    /// and doubled quotes, as dua-api writes them.
+    fn csv(text: &str) -> Vec<Vec<String>> {
+        let (mut rows, mut row, mut field) = (Vec::new(), Vec::new(), String::new());
+        let (mut quoted, mut chars) = (false, text.chars().peekable());
+        while let Some(c) = chars.next() {
+            match (c, quoted) {
+                ('"', true) if chars.peek() == Some(&'"') => {
+                    field.push('"');
+                    chars.next();
+                }
+                ('"', _) => quoted = !quoted,
+                (',', false) => row.push(std::mem::take(&mut field)),
+                ('\n', false) => {
+                    row.push(std::mem::take(&mut field));
+                    rows.push(std::mem::take(&mut row));
+                }
+                ('\r', false) => {}
+                _ => field.push(c),
+            }
+        }
+        rows
+    }
+
+    /// What two transliterations are compared on: their letters, without
+    /// spaces, hyphens, hamza and ‘ayn marks, punctuation or numbers, and
+    /// with য় ড় ঢ় in one form.
+    fn letters(s: &str) -> Vec<char> {
+        s.replace('\u{09DF}', "\u{09AF}\u{09BC}")
+            .replace('\u{09DC}', "\u{09A1}\u{09BC}")
+            .replace('\u{09DD}', "\u{09A2}\u{09BC}")
+            .chars()
+            .filter(|c| !c.is_whitespace() && !c.is_ascii_digit() && !('০'..='৯').contains(c))
+            .filter(|c| !"-‑–—‘’'`ʿʾ\u{200C}\u{200D}\u{200B}।,.;:!?“”\"()[]{}…".contains(*c))
+            .collect()
+    }
+
+    fn distance(a: &[char], b: &[char]) -> usize {
+        let mut prev: Vec<usize> = (0..=b.len()).collect();
+        for (i, ca) in a.iter().enumerate() {
+            let mut cur = vec![i + 1; b.len() + 1];
+            for (j, cb) in b.iter().enumerate() {
+                cur[j + 1] = (prev[j + 1] + 1).min(cur[j] + 1).min(prev[j] + usize::from(ca != cb));
+            }
+            prev = cur;
+        }
+        prev[b.len()]
+    }
+
+    /// Prints the character error rate of `ayah` against the Bangla Hisnul
+    /// Muslim's 77 Quranic duas (dua-api's book 2), read from the deen-data
+    /// checkout (DEEN_SOURCES, else ../deen-data). It reports and never
+    /// fails: the book is another hand, and the golden ayat are the gate.
+    #[test]
+    fn character_error_rate_against_the_bangla_hisnul_muslim() {
+        let dir = std::env::var_os("DEEN_SOURCES").map_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../deen-data"), std::path::PathBuf::from);
+        let Ok(text) = fs::read_to_string(dir.join("duas/dua-api/duadetails.csv")) else {
+            println!("character error rate: skipped, no deen-data checkout at {}", dir.display());
+            return;
+        };
+        let rows = csv(&text);
+        let col = |name: &str| rows[0].iter().position(|h| h == name).unwrap();
+        let (book, dua, arabic, tr) = (col("book_id"), col("dua_global_id"), col("arabic"), col("transliteration"));
+        let (mut errors, mut total, mut segments, mut skipped) = (0, 0, 0, Vec::new());
+        let mut duas = std::collections::BTreeSet::new();
+        for r in rows.iter().skip(1).filter(|r| r.len() > tr && r[book] == "2") {
+            let reference = letters(&r[tr]);
+            if reference.is_empty() {
+                continue;
+            }
+            // The book's Indo-Pak marks, as the Uthmani text writes them.
+            let ar: String = r[arabic]
+                .chars()
+                .filter(|c| !matches!(c, '\u{0615}' | '\u{0655}' | '\u{200C}'))
+                .map(|c| match c {
+                    '\u{06A9}' => '\u{0643}',
+                    '\u{06E4}' => '\u{0653}',
+                    '\u{0656}' => '\u{06E6}',
+                    '\u{0657}' => '\u{06E5}',
+                    c => c,
+                })
+                .collect();
+            match ayah(&ar) {
+                Ok(mine) => {
+                    errors += distance(&letters(&mine), &reference);
+                    total += reference.len();
+                    segments += 1;
+                    duas.insert(r[dua].clone());
+                }
+                Err(e) => skipped.push(format!("dua {} ({e})", r[dua])),
+            }
+        }
+        println!(
+            "character error rate against the Bangla Hisnul Muslim's Quranic duas: {:.1}% over {} duas, {segments} segments, {total} letters; skipped {skipped:?}",
+            100.0 * errors as f64 / total.max(1) as f64,
+            duas.len()
+        );
+    }
 }
+
