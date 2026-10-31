@@ -75,7 +75,13 @@ enum Cmd {
     /// `scripts/build-data` runs it on the quran.json and words.json it has
     /// just written; it stops, naming the ayah and the character, on a code
     /// point the pronunciation has no rule for.
-    Pron { dir: std::path::PathBuf },
+    Pron {
+        dir: std::path::PathBuf,
+        /// Print a draft of deen-data's surahs-bn.toml from the surahs'
+        /// Arabic names instead, for a person to correct.
+        #[arg(long)]
+        names: bool,
+    },
     /// Today's prayer times (Hanafi Asr) for the city in the config.
     ///
     /// Caches the month under ~/.cache/deen/prayer, so it works offline.
@@ -194,7 +200,11 @@ fn run() -> Result<()> {
         Cmd::Hadith { what } => do_hadith(what),
         Cmd::Hifz { what } => do_hifz(what),
         Cmd::Prayer { date, refresh } => prayer::run(date, refresh),
-        Cmd::Pron { dir } => {
+        Cmd::Pron { dir, names: true } => {
+            print!("{}", pron::draft_names(&dir)?);
+            Ok(())
+        }
+        Cmd::Pron { dir, names: false } => {
             pron::write_data(&dir)?;
             println!("{}", json!({ "ok": true }));
             Ok(())

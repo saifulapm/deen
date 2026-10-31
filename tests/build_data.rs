@@ -32,6 +32,11 @@ fn letters(n: u16) -> String {
     n.to_string().chars().map(|d| "بتثجحخدذرز".chars().nth(d as usize - '0' as usize).unwrap()).collect()
 }
 
+/// A number in Bangla digits.
+fn letters_bn(n: u16) -> String {
+    n.to_string().chars().map(|d| char::from_u32('০' as u32 + (d as u32 - '0' as u32)).unwrap()).collect()
+}
+
 fn ayat() -> impl Iterator<Item = (u16, u16)> {
     (1..=114u16).flat_map(|s| (1..=COUNTS[s as usize - 1]).map(move |a| (s, a)))
 }
@@ -67,6 +72,8 @@ fn sources(dir: &Path, bn: &[((u16, u16), &str)]) {
         "ayahs": (1..=COUNTS[s as usize - 1]).map(|a| json!({ "numberInSurah": a, "text": format!("English {s}:{a}") })).collect::<Vec<_>>(),
     })).collect();
     fs::write(dir.join("quran/en.sahih.json"), json!({ "code": 200, "data": { "surahs": surahs } }).to_string()).unwrap();
+    let names: String = (1..=114u16).map(|s| format!("{s} = \"সূরা {}\"\n", letters_bn(s))).collect();
+    fs::write(dir.join("surahs-bn.toml"), format!("[surahs]\n{names}")).unwrap();
     fs::write(dir.join("words/words.json"), Value::Object(words).to_string()).unwrap();
     fs::write(dir.join("words/quranwbw-bn.json"), Value::Object(wbw).to_string()).unwrap();
     fs::write(dir.join("duas/hisn.json"), json!({ "source": "Hisn al-Muslim", "chapters": [] }).to_string()).unwrap();
@@ -127,6 +134,9 @@ fn builds_the_quran_with_its_bangla_meaning_footnote_marks_stripped() {
     assert_eq!(quran["basmala"], "كَلِمَةت آيَةت");
     assert_eq!(deen(&out, &["api", "ayah", "2:1"])["ayah"]["ar"], "كَلِمَةث آيَةت");
     assert_eq!(quran["surahs"][93]["en"], "Surah-94");
+    let surahs = deen(&out, &["api", "surahs"]);
+    assert_eq!(surahs["surahs"][93]["bn"], "সূরা ৯৪");
+    assert_eq!(deen(&out, &["api", "surah", "94"])["surah"]["bn"], "সূরা ৯৪");
     // 2:1's span sat 40 code points in, past the 38 of the Basmala and its space.
     assert_eq!(quran["ayahs"][7]["taj"], json!([[1, 2, 0]]));
 }
@@ -240,8 +250,22 @@ fn the_real_quran_reads_in_bangla_letters_only() {
         assert!(!pron.is_empty() && !pron.chars().any(foreign), "{}:{} reads {pron:?}", a["s"], a["a"]);
     }
     assert_eq!(deen(&out, &["api", "ayah", "2:1"])["ayah"]["bn_pron"], "আলিফ লা-ম মী-ম");
+    assert_eq!(deen(&out, &["api", "surahs"])["surahs"].as_array().unwrap().iter().filter(|s| s["bn"].as_str().is_some_and(|b| b.starts_with("সূরা "))).count(), 114);
     let words: Value = serde_json::from_str(&fs::read_to_string(out.join("words.json")).unwrap()).unwrap();
     let all: Vec<_> = words.as_object().unwrap().values().flat_map(|a| a["words"].as_array().unwrap().iter()).collect();
     assert_eq!(all.len(), 77_429);
     assert!(all.iter().all(|w| !w["bn_pron"].as_str().unwrap_or("").is_empty()));
+}
+
+#[test]
+fn a_surah_with_no_bangla_name_stops_the_build() {
+    let dir = scratch("names");
+    let (src, out) = (dir.join("src"), dir.join("out"));
+    sources(&src, &[]);
+    let path = src.join("surahs-bn.toml");
+    let text = fs::read_to_string(&path).unwrap().replace("57 = \"সূরা ৫৭\"\n", "");
+    fs::write(&path, text).unwrap();
+    let r = build(&src, &out);
+    assert!(!r.status.success());
+    assert!(String::from_utf8_lossy(&r.stderr).contains("surah 57"), "{}", String::from_utf8_lossy(&r.stderr));
 }

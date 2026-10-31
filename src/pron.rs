@@ -148,6 +148,10 @@ fn parse(text: &str) -> Result<Vec<Vec<Unit>>, Unknown> {
         while k < w.len() {
             if w[k].has(HAMZA_ABOVE) {
                 w[k] = Unit { ch: 'ء', m: w[k].m & !HAMZA_ABOVE };
+            } else if w[k].ch == 'ا' && w[k].has(MADDAH) && (k == 0 || !w[k - 1].has(FATHA)) {
+                // ا with a maddah and no fatha before it is آ written apart.
+                w[k] = Unit { ch: 'ء', m: FATHA };
+                w.insert(k + 1, Unit { ch: 'ا', m: 0 });
             } else if w[k].ch == '\u{0640}' {
                 let m = w[k].m;
                 w.remove(k);
@@ -751,6 +755,20 @@ pub fn write_data(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// A draft of deen-data's surahs-bn.toml from `dir`'s quran.json, each name
+/// from `surah_name`, for a person to correct before it is kept.
+pub fn draft_names(dir: &Path) -> Result<String> {
+    let path = dir.join("quran.json");
+    let raw = fs::read_to_string(&path).with_context(|| format!("cannot read {}", path.display()))?;
+    let quran: Value = serde_json::from_str(&raw).with_context(|| format!("{} is not JSON", path.display()))?;
+    let mut out = String::from("[surahs]\n");
+    for s in quran["surahs"].as_array().context("quran.json has no surahs")? {
+        let name = surah_name(s["ar"].as_str().unwrap_or_default()).map_err(|e| anyhow!("surah {}'s name holds {e}", s["n"]))?;
+        out.push_str(&format!("{} = \"{name}\"  # {}\n", s["n"], s["ar"].as_str().unwrap_or_default()));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -835,5 +853,6 @@ mod tests {
     fn surah_names_set_the_article_off_with_a_hyphen() {
         assert_eq!(surah_name("سُورَةُ الشَّرۡحِ").unwrap(), "সূরা আশ-শারহ");
         assert_eq!(surah_name("سُورَةُ البَقَرَةِ").unwrap(), "সূরা আল-বাক্বারাহ");
+        assert_eq!(surah_name("سُورَةُ \u{0627}\u{0653}لِ عِمۡرَانَ").unwrap(), "সূরা আ-ল ‘ইমরা-ন");
     }
 }

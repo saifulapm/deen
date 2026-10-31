@@ -13,6 +13,7 @@
 #   quran/tajweed.json              cpfair's tajweed spans over that exact file
 #   quran/ben-abubakrzakaria.json   the Bangla meaning, fawazahmed0's layout
 #   quran/en.sahih.json             the English meaning and the surahs, alquran.cloud's layout
+#   surahs-bn.toml                  each surah's Bangla name, [surahs] 94 = "সূরা আশ-শারহ"
 #   words/words.json                the per-word file scripts/fetch-words built, kept as built
 #   words/quranwbw-bn.json          each word's Bangla meaning, "s" -> "a" -> [[word, ...]]
 #   duas/hisn.json                  the dua file scripts/fetch-duas built, kept as built
@@ -43,7 +44,7 @@ tmp=$(mktemp -d -p "$out" .build-XXXXXX)
 trap 'rm -rf "$tmp"' EXIT
 
 python3 -I - "$src" "$tmp" <<'PY'
-import json, re, sys, collections
+import json, re, sys, collections, tomllib
 src, tmp = sys.argv[1], sys.argv[2]
 
 def stop(msg):
@@ -138,10 +139,15 @@ for entry in json.load(open(f"{src}/quran/tajweed.json", encoding="utf-8")):
             rules.append(r)
         tajweed[ref].append([start, end, rule_id[r]])
 
+names = tomllib.load(open(f"{src}/surahs-bn.toml", "rb")).get("surahs", {})
+for n in range(1, 115):
+    if not str(names.get(str(n), "")).strip():
+        stop(f"surahs-bn.toml has no Bangla name for surah {n}")
+
 surahs = [{
     "n": m["number"], "ar": m["name"], "en": m["englishName"],
-    "tr": m["englishNameTranslation"], "count": len(m["ayahs"]),
-    "type": m["revelationType"],
+    "tr": m["englishNameTranslation"], "bn": names[str(m["number"])],
+    "count": len(m["ayahs"]), "type": m["revelationType"],
 } for m in sorted(english, key=lambda m: m["number"])]
 
 ayahs = [{

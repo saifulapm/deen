@@ -21,6 +21,9 @@ pub struct Surah {
     pub en: String,
     /// Translated name, e.g. "The Opening".
     pub tr: String,
+    /// Bangla name with সূরা before it, e.g. "সূরা আশ-শারহ", from deen-data's
+    /// surahs-bn.toml.
+    pub bn: String,
     /// How many ayat it has.
     pub count: u16,
     /// "Meccan" or "Medinan".
