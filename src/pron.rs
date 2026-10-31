@@ -735,6 +735,78 @@ pub fn surah_name(text: &str) -> Result<String, Unknown> {
     Ok(lexicon(out))
 }
 
+/// A dua as it is read, from Hisn al-Muslim as sunnah.com prints it or from
+/// a segment of the Bangla Hisnul Muslim's Arabic: each stop mark (، . : ؛ ؟,
+/// the * between ayat, a dash, a brace, an ornate parenthesis) ends a phrase
+/// read in its pause form, and the phrases join with a comma, as the book's
+/// own pronunciations are punctuated. Brackets, quotes and an ayah's number
+/// are not read, and split no word: وَ(الْحَمْدُ joins as it is said.
+///
+/// sunnah.com types a few things the Uthmani text never does, and each is
+/// read as the Uthmani text writes it: the honorifics left bare, a lam-alif's
+/// marks after its alif (لاَ), a tanween on the alif after its letter (نُوراً),
+/// and the article's alif after وَ فَ كَ bare.
+pub fn dua(text: &str) -> Result<String, Unknown> {
+    let mut text = text.to_string();
+    for (bare, voweled) in BARE {
+        text = text.replace(bare, voweled);
+    }
+    let mut phrases = vec![String::new()];
+    // A mark has just moved from a lam-alif's alif to its lam, so the next
+    // mark on that alif moves too (إِلاَّ).
+    let mut lam_alif = false;
+    for c in text.chars() {
+        let cur = phrases.last_mut().unwrap();
+        let on_alif = cur.ends_with('ا') && cur.chars().rev().nth(1).is_some_and(letter);
+        if ('\u{064B}'..='\u{0652}').contains(&c) && (cur.ends_with("لا") || (lam_alif && cur.ends_with('ا')) || (c == '\u{064B}' && on_alif)) {
+            cur.insert(cur.len() - 'ا'.len_utf8(), c);
+            lam_alif = true;
+            continue;
+        }
+        lam_alif = false;
+        match c {
+            '،' | ',' | '.' | ':' | '؛' | '؟' | '*' | '-' | '–' | '{' | '}' | '﴾' | '﴿' => phrases.push(String::new()),
+            '(' | ')' | '[' | ']' | '"' | '0'..='9' => cur.push(' '),
+            // The Indo-Pak marks the Bangla book writes, as the Uthmani text
+            // writes them: its long pronoun vowels carry their short vowel.
+            '\u{06A9}' => cur.push('ك'),
+            '\u{06E4}' => cur.push('\u{0653}'),
+            '\u{0656}' => cur.push_str("\u{0650}\u{06E6}"),
+            '\u{0657}' => cur.push_str("\u{064F}\u{06E5}"),
+            '\u{0615}' | '\u{0655}' | '\u{200C}' => {}
+            c => cur.push(c),
+        }
+    }
+    let mut out = Vec::new();
+    for p in &phrases {
+        let read = ayah(&p.split_whitespace().map(particle_wasl).collect::<Vec<_>>().join(" "))?;
+        if !read.is_empty() {
+            out.push(read);
+        }
+    }
+    Ok(out.join(", "))
+}
+
+/// The honorifics sunnah.com writes without a mark, voweled.
+const BARE: [(&str, &str); 4] = [
+    ("صلى الله عليه وسلم", "صَلَّى اللَّهُ عَلَيْهِ وَسَلَّمَ"),
+    ("رضي الله عنهما", "رَضِيَ اللَّهُ عَنْهُمَا"),
+    ("رضي الله عنها", "رَضِيَ اللَّهُ عَنْهَا"),
+    ("رضي الله عنه", "رَضِيَ اللَّهُ عَنْهُ"),
+];
+
+/// وَال, فَاسْ: a bare alif after وَ فَ كَ is a wasl when the letter after it
+/// is silent (a sukun, or the article's lam with no vowel), since a long ā
+/// is always followed by a vowelled letter (وَالِدَيْهِ).
+fn particle_wasl(w: &str) -> String {
+    let mut c: Vec<char> = w.chars().collect();
+    let vowel = |x: Option<&char>| x.is_some_and(|x| ('\u{064B}'..='\u{0650}').contains(x));
+    if c.len() > 4 && matches!(c[0], 'و' | 'ف' | 'ك') && c[1] == '\u{064E}' && c[2] == 'ا' && (c[4] == '\u{0652}' || (c[3] == 'ل' && !vowel(c.get(4)))) {
+        c[2] = 'ٱ';
+    }
+    c.into_iter().collect()
+}
+
 /// Give every ayah of `dir`'s quran.json and every word of its words.json
 /// their `bn_pron`, writing both files back. `scripts/build-data` runs this
 /// on the files it has just written, before they replace the old ones.
@@ -894,6 +966,89 @@ mod tests {
     }
 
     #[test]
+    fn a_dua_pauses_at_each_stop_mark_and_joins_its_phrases_with_a_comma() {
+        let (a, b) = ("بِسْمِ اللهِ", "تَوَكَّلْـتُ عَلى اللهِ");
+        assert_eq!(dua(&format!("{a} ، {b}")).unwrap(), format!("{}, {}", ayah(a).unwrap(), ayah(b).unwrap()));
+        // Hisn al-Muslim's Quranic duas put a * between ayat and braces round
+        // them, with the ayah's number after.
+        let (r, q, s) = ("الرَّحِيمِ", "قُلْ هُوَ اللَّهُ أَحَدٌ", "اللَّهُ الصَّمَدُ");
+        let want = [r, q, s].map(|t| ayah(t).unwrap()).join(", ");
+        assert_eq!(dua(&format!("{r} {{{q}* {s}}} {{190}}")).unwrap(), want);
+        assert_eq!(dua(&format!("{a} – {b}.")).unwrap(), format!("{}, {}", ayah(a).unwrap(), ayah(b).unwrap()));
+    }
+
+    #[test]
+    fn a_duas_brackets_and_quotes_are_not_read_and_split_no_word() {
+        assert_eq!(dua("وَ(الْحَمْدُ لِلَّهِ)").unwrap(), ayah("وَ الْحَمْدُ لِلَّهِ").unwrap());
+        assert_eq!(dua("أَصْـبَحْنا[أَمْسَـينا]").unwrap(), ayah("أَصْـبَحْنا أَمْسَـينا").unwrap());
+        assert_eq!(dua("\"لَهُۥ\"").unwrap(), ayah("لَهُۥ").unwrap());
+    }
+
+    #[test]
+    fn a_duas_indo_pak_marks_read_as_the_uthmani_ones() {
+        assert_eq!(dua("بِهٖ").unwrap(), dua("بِهِۦ").unwrap());
+        assert_eq!(dua("حَسِيْبُهٗ").unwrap(), ayah("حَسِيْبُهُۥ").unwrap());
+        assert_eq!(dua("وَلَآ").unwrap(), ayah("وَلَآ").unwrap());
+        assert_eq!(dua("وَلَاۤ").unwrap(), ayah("وَلَآ").unwrap());
+        assert_eq!(dua("کَذَا\u{200C}").unwrap(), ayah("كَذَا").unwrap());
+        assert!(dua("بِسْمِ\u{08F0}").is_err());
+    }
+
+    #[test]
+    fn a_duas_honorifics_read_though_sunnah_com_leaves_them_bare() {
+        assert_eq!(dua("قَالَ صلى الله عليه وسلم").unwrap(), ayah("قَالَ صَلَّى اللَّهُ عَلَيْهِ وَسَلَّمَ").unwrap());
+        assert!(dua("قَالَ صلى الله عليه وسلم").unwrap().ends_with("সাল্লাল্লা-হু ‘আলাইহি ওয়াসাল্লাম"));
+        assert_eq!(dua("عُمَرَ رضي الله عنهما").unwrap(), ayah("عُمَرَ رَضِيَ اللَّهُ عَنْهُمَا").unwrap());
+        assert_eq!(dua("جَابِرٌ رضي الله عنه").unwrap(), ayah("جَابِرٌ رَضِيَ اللَّهُ عَنْهُ").unwrap());
+    }
+
+    #[test]
+    fn a_mark_typed_after_lam_alif_is_the_lams() {
+        assert_eq!(dua("لاَ إِلَهَ إِلاَّ اللَّهُ").unwrap(), ayah("لَا إِلَهَ إِلَّا اللَّهُ").unwrap());
+        assert_eq!(dua("السَّلاَمُ").unwrap(), ayah("السَّلَامُ").unwrap());
+    }
+
+    #[test]
+    fn a_tanween_typed_on_its_alif_is_the_letters_before() {
+        assert_eq!(dua("نُوراً").unwrap(), ayah("نُورًا").unwrap());
+        assert_eq!(dua("رَافِعاً يَدَيْهِ").unwrap(), ayah("رَافِعًا يَدَيْهِ").unwrap());
+    }
+
+    #[test]
+    fn a_bare_alif_after_a_particle_before_a_silent_letter_is_a_wasl() {
+        assert_eq!(dua("وَالصَّلَاةُ").unwrap(), ayah("وَٱلصَّلَاةُ").unwrap());
+        assert_eq!(dua("فَاسْأَلُوا").unwrap(), ayah("فَٱسْأَلُوا").unwrap());
+        assert_eq!(dua("وَالْإِقَامَةِ").unwrap(), ayah("وَٱلْإِقَامَةِ").unwrap());
+        // A root's long ā stays long: its next letter takes a vowel.
+        assert_eq!(dua("وَالِدَيْهِ").unwrap(), ayah("وَالِدَيْهِ").unwrap());
+    }
+
+    /// The deen-data checkout the real-data tests read: DEEN_SOURCES, or the
+    /// deen-data directory next to this crate.
+    fn checkout() -> std::path::PathBuf {
+        let dir = std::env::var_os("DEEN_SOURCES").map_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../deen-data"), std::path::PathBuf::from);
+        assert!(dir.join("duas/hisn.json").exists(), "no deen-data checkout at {}: set DEEN_SOURCES", dir.display());
+        dir
+    }
+
+    /// Every one of Hisn al-Muslim's 268 duas reads, so the build never
+    /// stops on one, and each reads as something.
+    #[test]
+    fn every_dua_in_the_book_reads() {
+        let book: Value = serde_json::from_str(&fs::read_to_string(checkout().join("duas/hisn.json")).unwrap()).unwrap();
+        let duas = book["duas"].as_array().unwrap();
+        assert_eq!(duas.len(), 268);
+        let bad: Vec<String> = duas
+            .iter()
+            .filter_map(|d| match dua(d["ar"].as_str().unwrap()) {
+                Ok(p) if !p.trim().is_empty() => None,
+                r => Some(format!("{}: {r:?}", d["id"])),
+            })
+            .collect();
+        assert!(bad.is_empty(), "{} duas do not read: {bad:?}", bad.len());
+    }
+
+    #[test]
     fn surah_names_set_the_article_off_with_a_hyphen() {
         assert_eq!(surah_name("سُورَةُ الشَّرۡحِ").unwrap(), "সূরা আশ-শারহ");
         assert_eq!(surah_name("سُورَةُ البَقَرَةِ").unwrap(), "সূরা আল-বাক্বারাহ");
@@ -949,7 +1104,7 @@ mod tests {
         prev[b.len()]
     }
 
-    /// Prints the character error rate of `ayah` against the Bangla Hisnul
+    /// Prints the character error rate of `dua` against the Bangla Hisnul
     /// Muslim's 77 Quranic duas (dua-api's book 2), read from the deen-data
     /// checkout (DEEN_SOURCES, else ../deen-data). It reports and never
     /// fails: the book is another hand, and the golden ayat are the gate.
@@ -962,7 +1117,7 @@ mod tests {
         };
         let rows = csv(&text);
         let col = |name: &str| rows[0].iter().position(|h| h == name).unwrap();
-        let (book, dua, arabic, tr) = (col("book_id"), col("dua_global_id"), col("arabic"), col("transliteration"));
+        let (book, dua_id, arabic, tr) = (col("book_id"), col("dua_global_id"), col("arabic"), col("transliteration"));
         let (mut errors, mut total, mut segments, mut skipped) = (0, 0, 0, Vec::new());
         let mut duas = std::collections::BTreeSet::new();
         for r in rows.iter().skip(1).filter(|r| r.len() > tr && r[book] == "2") {
@@ -970,26 +1125,14 @@ mod tests {
             if reference.is_empty() {
                 continue;
             }
-            // The book's Indo-Pak marks, as the Uthmani text writes them.
-            let ar: String = r[arabic]
-                .chars()
-                .filter(|c| !matches!(c, '\u{0615}' | '\u{0655}' | '\u{200C}'))
-                .map(|c| match c {
-                    '\u{06A9}' => '\u{0643}',
-                    '\u{06E4}' => '\u{0653}',
-                    '\u{0656}' => '\u{06E6}',
-                    '\u{0657}' => '\u{06E5}',
-                    c => c,
-                })
-                .collect();
-            match ayah(&ar) {
+            match dua(&r[arabic]) {
                 Ok(mine) => {
                     errors += distance(&letters(&mine), &reference);
                     total += reference.len();
                     segments += 1;
-                    duas.insert(r[dua].clone());
+                    duas.insert(r[dua_id].clone());
                 }
-                Err(e) => skipped.push(format!("dua {} ({e})", r[dua])),
+                Err(e) => skipped.push(format!("dua {} ({e})", r[dua_id])),
             }
         }
         println!(
@@ -999,4 +1142,3 @@ mod tests {
         );
     }
 }
-
