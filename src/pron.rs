@@ -745,7 +745,8 @@ pub fn surah_name(text: &str) -> Result<String, Unknown> {
 /// sunnah.com types a few things the Uthmani text never does, and each is
 /// read as the Uthmani text writes it: the honorifics left bare, a lam-alif's
 /// marks after its alif (لاَ), a tanween on the alif after its letter (نُوراً),
-/// and the article's alif after وَ فَ كَ bare.
+/// and the article's alif after وَ فَ كَ bare. A word it typed with no mark at
+/// all is not read, so a dua typed bare reads as nothing.
 pub fn dua(text: &str) -> Result<String, Unknown> {
     let mut text = text.to_string();
     for (bare, voweled) in BARE {
@@ -779,7 +780,11 @@ pub fn dua(text: &str) -> Result<String, Unknown> {
     }
     let mut out = Vec::new();
     for p in &phrases {
-        let read = ayah(&p.split_whitespace().map(particle_wasl).collect::<Vec<_>>().join(" "))?;
+        // A word typed with no mark at all is not read: its vowels would be
+        // guessed (110 is an instruction typed bare; 115 types its sentence
+        // bare and then voweled).
+        let marked = p.split_whitespace().filter(|w| w.chars().any(|c| mark(c).is_some())).map(particle_wasl);
+        let read = ayah(&marked.collect::<Vec<_>>().join(" "))?;
         if !read.is_empty() {
             out.push(read);
         }
@@ -840,9 +845,13 @@ pub fn write_data(dir: &Path) -> Result<()> {
     }
 
     // build-data leaves each dua's pronunciation as its parts: the Bangla
-    // book's own, or Arabic for the engine to read.
+    // book's own, or Arabic for the engine to read. One already written is
+    // kept, and a dua that reads as nothing, typed with no mark, has none.
     let mut duas = read("duas.json")?;
     for d in duas["duas"].as_array_mut().context("duas.json has no duas")? {
+        if d["bn_pron"].is_string() {
+            continue;
+        }
         let at = format!("dua {}", d["id"].as_str().unwrap_or_default());
         let mut parts = Vec::new();
         for p in d["bn_pron"].as_array().into_iter().flatten() {
@@ -856,9 +865,10 @@ pub fn write_data(dir: &Path) -> Result<()> {
             }
         }
         if parts.is_empty() {
-            return Err(anyhow!("{at} reads as nothing"));
+            d.as_object_mut().context("a dua is not an object")?.remove("bn_pron");
+        } else {
+            d["bn_pron"] = Value::from(parts.join(" "));
         }
-        d["bn_pron"] = Value::from(parts.join(" "));
     }
 
     for (name, v) in [("quran.json", &quran), ("words.json", &words), ("duas.json", &duas)] {
@@ -1045,6 +1055,15 @@ mod tests {
         assert_eq!(dua("وَالِدَيْهِ").unwrap(), ayah("وَالِدَيْهِ").unwrap());
     }
 
+    #[test]
+    fn a_word_typed_with_no_mark_is_not_read() {
+        // 110 is an instruction, typed bare; the engine does not guess its vowels.
+        assert_eq!(dua("يقرأ ((ألم * تنزيل)) السجدة").unwrap(), "");
+        // 115 types its sentence twice, bare and then voweled.
+        assert_eq!(dua("يقوم يصلي إن أراد ذلك.ويَقُومُ يُصَلِّي").unwrap(), ayah("ويَقُومُ يُصَلِّي").unwrap());
+        assert_eq!(dua("قَالَ صلى الله عليه وسلم").unwrap(), ayah("قَالَ صَلَّى اللَّهُ عَلَيْهِ وَسَلَّمَ").unwrap());
+    }
+
     /// The deen-data checkout the real-data tests read: DEEN_SOURCES, or the
     /// deen-data directory next to this crate.
     fn checkout() -> std::path::PathBuf {
@@ -1054,7 +1073,8 @@ mod tests {
     }
 
     /// Every one of Hisn al-Muslim's 268 duas reads, so the build never
-    /// stops on one, and each reads as something.
+    /// stops on one. Which read as nothing, being typed bare, is the real
+    /// build's test: those the Bangla book covers take its pronunciation.
     #[test]
     fn every_dua_in_the_book_reads() {
         let book: Value = serde_json::from_str(&fs::read_to_string(checkout().join("duas/hisn.json")).unwrap()).unwrap();
@@ -1063,8 +1083,8 @@ mod tests {
         let bad: Vec<String> = duas
             .iter()
             .filter_map(|d| match dua(d["ar"].as_str().unwrap()) {
-                Ok(p) if !p.trim().is_empty() => None,
-                r => Some(format!("{}: {r:?}", d["id"])),
+                Ok(_) => None,
+                Err(e) => Some(format!("{}: {e}", d["id"])),
             })
             .collect();
         assert!(bad.is_empty(), "{} duas do not read: {bad:?}", bad.len());

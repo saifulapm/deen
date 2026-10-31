@@ -232,10 +232,16 @@ for d in book["duas"]:
         del d["bn"]
     d["bn_pron"] = [{"bn": bangla(r["transliteration"], d["id"])} if r["transliteration"].strip() else {"ar": r["arabic"]} for _, r in rows]
     # A dua-api dua's reference holds one line per footnote, often on another
-    # of its segments; the line is the one the first mark in the meaning, then
-    # in the narration, names, else the first.
-    mark = next(((g, m.group(1)) for f in ("translations", "bottom") for g, r in rows for m in [NAMED.search(r[f])] if m), None)
-    g, n = mark or (rows[0][0], None)
+    # of its segments; the line is the one the first mark in the meaning
+    # names, else its dua's first line when that carries no mark (the dua's
+    # own citation, as 12's is), else the one the narration's first mark
+    # names, else the first.
+    first = lambda g: next((l.strip() for r in segments[g] for l in r["reference"].splitlines() if l.strip()), "")
+    marked = lambda f: next(((g, m.group(1)) for g, r in rows for m in [NAMED.search(r[f])] if m), None)
+    mark = marked("translations")
+    if not mark and first(rows[0][0]) and not first(rows[0][0]).startswith("["):
+        mark = (rows[0][0], None)
+    g, n = mark or marked("bottom") or (rows[0][0], None)
     lines = [l.strip() for r in segments[g] for l in r["reference"].splitlines() if l.strip()]
     line = next((l for l in lines if n and l.startswith(f"[{n}]")), lines[0] if lines else "")
     if line:

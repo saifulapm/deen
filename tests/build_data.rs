@@ -222,6 +222,21 @@ fn each_dua_gains_the_bangla_book_its_join_names() {
     assert_eq!(three["ref"], "Ref 3");
 }
 
+#[test]
+fn a_dua_typed_with_no_mark_reads_no_pronunciation_and_a_rerun_keeps_the_rest() {
+    let dir = scratch("dua-bare");
+    let (src, out) = (dir.join("src"), dir.join("out"));
+    sources(&src, &[]);
+    replace(&src.join("duas/hisn.json"), "ٱلْحَمْدُ لِلَّهِ", "الحمد لله");
+    let r = build(&src, &out);
+    assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+    assert!(deen(&out, &["dua", "show", "3"])["dua"].get("bn_pron").is_none());
+    let before = fs::read(out.join("duas.json")).unwrap();
+    let again = Command::new(env!("CARGO_BIN_EXE_deen")).arg("pron").arg(&out).output().unwrap();
+    assert!(again.status.success(), "{}", String::from_utf8_lossy(&again.stderr));
+    assert_eq!(fs::read(out.join("duas.json")).unwrap(), before);
+}
+
 /// Builds from `sources` changed by `edit`, and gives the build's error.
 fn fails(name: &str, edit: impl FnOnce(&Path)) -> String {
     let dir = scratch(name);
@@ -433,12 +448,15 @@ fn the_real_duas_read_the_bangla_book() {
     let duas = list["duas"].as_array().unwrap();
     assert_eq!(duas.len(), 268);
     let foreign = |c: char| c.is_ascii_alphabetic() || ('\u{0600}'..='\u{06FF}').contains(&c);
-    for d in duas {
+    for d in duas.iter().filter(|d| d.get("bn_pron").is_some()) {
         let pron = d["bn_pron"].as_str().unwrap_or_default();
         assert!(!pron.is_empty() && !pron.chars().any(foreign), "dua {} reads {pron:?}", d["id"]);
         assert_eq!(d.get("bn").is_some(), d.get("bn_ref").is_some(), "dua {}", d["id"]);
     }
     assert_eq!(duas.iter().filter(|d| d.get("bn").is_none()).count(), 38);
+    // The two instructions sunnah.com typed bare read no pronunciation.
+    let unread: Vec<_> = duas.iter().filter(|d| d.get("bn_pron").is_none()).map(|d| d["id"].as_str().unwrap()).collect();
+    assert_eq!(unread, ["110", "141"]);
     assert!(duas.iter().all(|d| !d["bn"].as_str().unwrap_or_default().contains("[১]")));
 
     let rows = csv(&src.join("duas/dua-api/duadetails.csv"));
@@ -459,6 +477,11 @@ fn the_real_duas_read_the_bangla_book() {
     // 25's line is the one its own footnote names, not its dua's first.
     let line = seg("23", 3)["reference"].lines().find(|l| l.starts_with("[৩]")).unwrap().trim_start_matches("[৩] ").trim().to_string();
     assert_eq!(dua("25")["bn_ref"], line);
+    // 12's meaning has no mark and its first line none either: that line is
+    // its own citation, though its narration's [১] names another.
+    let first = seg("13", 0)["reference"].lines().next().unwrap().trim().to_string();
+    assert!(!first.starts_with('['));
+    assert_eq!(dua("12")["bn_ref"], first);
     // 70's three surahs join with a space.
     let three: Vec<String> = (0..3).map(|i| seg("67", i)["transliteration"].trim().to_string()).collect();
     assert_eq!(dua("70")["bn_pron"], three.join(" "));
