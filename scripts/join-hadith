@@ -45,6 +45,10 @@ def key(h):
 
 BN_DIGITS = str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯")
 DIGIT = re.compile("[0-9০-৯]")
+# Malik's Bangla edition opens with its own number for the narration,
+# `রেওয়ায়ত ১০৬. `, which is neither sunnah.com's nor the book's.
+YA = "(?:\u09DF|\u09AF\u09BC)"
+MALIK_NUMBER = re.compile(rf"^\s*রেও{YA}া{YA}া?ত\s*[০-৯]+\s*\.?\s+")
 SPOKEN = re.compile("বলেন|বলেছেন|বললেন|বলতে|বর্ণিত|বর্ণনা|[\u0600-\u06ff]")
 NARRATOR_DOTS = re.compile(r"\((রহ[ঃ.:]?|রাহ[ঃ.:]?|রহিঃ|রহিমাহুম[াু]ল্লাহ)\)\s*\.{5}")
 PUBLISHER = re.compile("প্রকাশনী|ফাউন্ডেশন|সেন্টার")
@@ -91,6 +95,8 @@ def clean(text, n):
     marker = re.search(r"(?:^|(?<=\s))" + re.escape(n.translate(BN_DIGITS)) + r"\s*\.\s", t)
     if marker:
         t = t[marker.end():]
+    else:
+        t = MALIK_NUMBER.sub("", t, count=1)
     t = t.lstrip("। \n")
     # A chain stub is a list of narrators before `.....` in the first sentence;
     # dots after someone speaks or narrates leave out a passage instead.

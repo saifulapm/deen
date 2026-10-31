@@ -86,6 +86,11 @@ fn the_heading_up_to_the_narrations_own_number_goes() {
     // A heading in Bangla alone, and Malik's word before the number.
     assert_eq!(cleaned("এ বিষয়ে হাদীস বর্ণিত হয়েছে। ৫. আনাস হতে বর্ণিত।").as_deref(), Some("আনাস হতে বর্ণিত।"));
     assert_eq!(cleaned("রেওয়ায়ত ৫. নাফি’ (রহঃ) হইতে বর্ণিত।").as_deref(), Some("নাফি’ (রহঃ) হইতে বর্ণিত।"));
+    // Malik's Bangla edition numbers its narrations its own way.
+    assert_eq!(cleaned("রেওয়ায়ত ১০৬. নাফি’ (রহঃ) হইতে বর্ণিত।").as_deref(), Some("নাফি’ (রহঃ) হইতে বর্ণিত।"));
+    assert_eq!(cleaned("রেও\u{9DF}া\u{9DF}ত ১০৬. নাফি’ (রহঃ) হইতে বর্ণিত।").as_deref(), Some("নাফি’ (রহঃ) হইতে বর্ণিত।"));
+    assert_eq!(cleaned("রেওয়ায়াত ৭ নাফি’ (রহঃ) হইতে বর্ণিত।").as_deref(), Some("নাফি’ (রহঃ) হইতে বর্ণিত।"));
+    assert_eq!(cleaned("মালিক (রহঃ)-এর নিকট রেওয়ায়ত পৌছিয়াছে।").as_deref(), Some("মালিক (রহঃ)-এর নিকট রেওয়ায়ত পৌছিয়াছে।"));
 }
 
 #[test]
