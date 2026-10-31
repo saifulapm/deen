@@ -28,7 +28,7 @@ const LANGS: [&str; 3] = ["ara", "eng", "ben"];
 const JOIN: &str = include_str!("../scripts/join-hadith");
 /// What join-hadith writes. A corpus of another format was joined by an older
 /// deen, so status reads it as missing and the next open rebuilds it.
-const FORMAT: u64 = 4;
+const FORMAT: u64 = 5;
 
 /// The deen-data snapshot. `DEEN_SOURCES` overrides.
 pub fn sources() -> PathBuf {

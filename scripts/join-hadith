@@ -53,6 +53,7 @@ ARABIC = re.compile("[\u0600-\u06ff]")
 SPOKEN = re.compile("বলেন|বলেছেন|বললেন|বলতে|বর্ণিত|বর্ণনা|শুনেছেন|পড়তে|[\u0600-\u06ff]")
 NARRATOR_DOTS = re.compile(r"\((রহ[ঃ.:]?|রাহ[ঃ.:]?|রহিঃ|রহিমাহুম[াু]ল্লাহ)\)\s*\.{5}")
 PUBLISHER = re.compile(r"প্রকাশনী|ফাউন্ডেশন|সেন্টার|আ\.প্র|ই\.ফা")
+TRAILING_PUBLISHER = re.compile(r"\s\(?\s*(?:আধুনিক প্রকাশনী|ইসলাম(?:িক|ী) ফাউন্ডেশন|ইসলাম(?:িক|ী|ীক) সেন্টার)[^।?!]*$")
 # A grade remark is the text's own, wherever the edition put it.
 GRADE = re.compile("হাসান|সহীহ(?!্)|যঈফ|য[’']ঈফ|দুর্বল|গারীব|মাওযূ")
 # A bare source label, `[সহীহ্ মুসলিমঃ]`, as Nawawi's edition writes one.
@@ -119,6 +120,9 @@ def clean(text, n):
         t = t[stub:].lstrip(". ")
     t = re.sub(r"\[[^\[\]]*\]|\((?:[^()]|\([^()]*\))*\)", reference, t)
     t = unmatched_brackets_gone(t)
+    # A publisher note the edition left unclosed, or wrote with no parentheses,
+    # still ends the text.
+    t = TRAILING_PUBLISHER.sub("", t)
     # A chain note is the last sentence, a narrator then `.....`; the same
     # dots elsewhere in the narration mark a passage left out, and stay.
     # Ibn Majah follows a narration with `১/৪৪৬।`, its own number, and a

@@ -296,3 +296,9 @@ fn a_bracket_holding_a_grade_or_the_texts_own_words_stays() {
     );
     assert_eq!(cleaned("হাদীস। [বুখারীঃ ৮, মুসলিমঃ]").as_deref(), Some("হাদীস।"));
 }
+
+#[test]
+fn a_trailing_publisher_note_goes_even_unclosed() {
+    assert_eq!(cleaned("অনুসরণ করেছেন। (আধুনিক প্রকাশনীঃ ১৬১৮(ক). ইসলামিক ফাউন্ডেশনঃ").as_deref(), Some("অনুসরণ করেছেন।"));
+    assert_eq!(cleaned("নাসীহাত করছিলেন। ইসলামিক ফাউন্ডেশনঃ ৬২, ইসলামিক সেন্টারঃ").as_deref(), Some("নাসীহাত করছিলেন।"));
+}
