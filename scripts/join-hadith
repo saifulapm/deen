@@ -28,6 +28,73 @@ def key(h):
     n = h.get("hadithnumber")
     return ("%s" % n).rstrip("0").rstrip(".") if isinstance(n, float) and n.is_integer() else str(n)
 
+BN_DIGITS = str.maketrans("0123456789", "০১২৩৪৫৬৭৮৯")
+DIGIT = re.compile("[0-9০-৯]")
+SPOKEN = re.compile("বলেন|বলেছেন|বললেন|বলতে|বর্ণিত|বর্ণনা|[\u0600-\u06ff]")
+NARRATOR_DOTS = re.compile(r"\((রহ[ঃ.:]?|রাহ[ঃ.:]?|রহিঃ|রহিমাহুম[াু]ল্লাহ)\)\s*\.{5}")
+PUBLISHER = re.compile("প্রকাশনী|ফাউন্ডেশন|সেন্টার")
+NUMBERS_ONLY = re.compile(r"[0-9০-৯/,;:ঃ.\-–ও\s]*")
+
+def reference(m):
+    """A bracket or parenthesis the reader does not need: the editions' own
+    cross-references, publisher numbers and footnote marks. Brackets the
+    translator wrote into the narration, and parentheses like `(২ বার)` or
+    `(রাঃ)`, are the text and stay."""
+    inside = m.group(0)[1:-1].strip()
+    if m.group(0)[0] == "[":
+        drop = DIGIT.search(inside) or inside.endswith("ঃ")
+    else:
+        drop = (PUBLISHER.search(inside) or (DIGIT.search(inside) and NUMBERS_ONLY.fullmatch(inside))
+                or (DIGIT.search(inside) and re.search("হাঃ|দ্রষ্টব্য", inside))
+                or (DIGIT.match(inside) and ";" in inside))
+    return " " if drop else m.group(0)
+
+def unmatched_brackets_gone(t):
+    """A `]` the edition left with no `[`, or the reverse, goes."""
+    open_at, gone = [], set()
+    for i, ch in enumerate(t):
+        if ch == "[":
+            open_at.append(i)
+        elif ch == "]":
+            if open_at:
+                open_at.pop()
+            else:
+                gone.add(i)
+    gone.update(open_at)
+    return "".join(" " if i in gone else ch for i, ch in enumerate(t))
+
+def clean(text, n):
+    """The narration alone out of a Bangla edition's entry (ruling 1Q6R0T2W).
+
+    The editions prefix the chapter's heading and the narration's number, open
+    with a stub of the chain and close with a note on another chain, and carry
+    the publishers' numbers and cross-references inline. Grade remarks such as
+    হাসান গারীব are the text's own and stay."""
+    t = text.strip()
+    # The heading ends at the narration's own number, `৬১১৪. `; a different
+    # number in the text is never a heading's end.
+    marker = re.search(r"(?:^|(?<=\s))" + re.escape(n.translate(BN_DIGITS)) + r"\s*\.\s", t)
+    if marker:
+        t = t[marker.end():]
+    t = t.lstrip("। \n")
+    # A chain stub is a list of narrators before `.....` in the first sentence;
+    # dots after someone speaks or narrates leave out a passage instead.
+    stub = t.find(".....")
+    if stub >= 0 and (t.find("।") < 0 or stub < t.find("।")) and not SPOKEN.search(
+            re.sub(r"\([^()]*\)|\[[^\[\]]*\]", "", t[:stub])):
+        t = t[stub:].lstrip(". ")
+    t = re.sub(r"\[[^\[\]]*\]|\([^()]*\)", reference, t)
+    t = unmatched_brackets_gone(t)
+    # A chain note is the last sentence, a narrator then `.....`; the same
+    # dots elsewhere in the narration mark a passage left out, and stay.
+    t = t.rstrip()
+    last = max(t.rfind(p, 0, len(t) - 1) for p in "।?!")
+    if last >= 0 and NARRATOR_DOTS.search(t[last:]):
+        t = t[:last + 1]
+    t = re.sub(r"\s+", " ", t)
+    t = re.sub(r" (?=[।,?!])", "", t)
+    return t.strip()
+
 def number_order(k):
     """File order is the book's order, so a reader scrolling a collection is
     walking it rather than reading a hash. `402.2` sorts after `402`."""
@@ -91,7 +158,12 @@ for c in collections:
             ref = e.get("reference") or {}
             row = {"n": k, "ar": (a.get("text") or "").strip(), "en": (e.get("text") or "").strip()}
             if k in B:
-                row["bn"] = B[k]
+                bn = clean(B[k], k)
+                # The cleaned text first: Bangla search reads the field after
+                # `en` up to the next key (src/hadith.rs field_span).
+                if bn:
+                    row["bn"] = bn
+                row["bn_raw"] = B[k]
             if grades:
                 row["grades"] = grades
             if ref.get("book") is not None:

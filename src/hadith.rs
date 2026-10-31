@@ -38,8 +38,12 @@ pub struct Hadith {
     pub n: String,
     pub ar: String,
     pub en: String,
+    /// The Bangla cleaned of the edition's heading, chain stubs and
+    /// references; `bn_raw` is the edition's text as it came.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub bn: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bn_raw: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub grades: Vec<Grade>,
     /// Section number within the collection, and the number within that
@@ -176,15 +180,15 @@ fn script_of(s: &str) -> Script {
 /// well — an English word that happens to appear inside a Bangla transliteration
 /// is not a hit in the English text.
 ///
-/// COUPLED TO THE WRITER: `scripts/fetch-hadith` emits `n`, `ar`, `en`, then an
-/// optional `bn`, and only then the metadata.
+/// COUPLED TO THE WRITER: `scripts/join-hadith` emits `n`, `ar`, `en`, then an
+/// optional `bn` and `bn_raw`, and only then the metadata.
 fn field_span<'a>(line: &'a str, key: &str) -> &'a str {
     let open = format!("\"{key}\":\"");
     let Some(start) = line.find(&open).map(|i| i + open.len()) else {
         return "";
     };
     let rest = &line[start..];
-    let end = ["\",\"ar\":\"", "\",\"en\":\"", "\",\"bn\":\"", "\",\"grades\":", "\",\"book\":", "\",\"in_book\":"]
+    let end = ["\",\"ar\":\"", "\",\"en\":\"", "\",\"bn\":\"", "\",\"bn_raw\":\"", "\",\"grades\":", "\",\"book\":", "\",\"in_book\":"]
         .iter()
         .filter_map(|k| rest.find(k))
         .min()
@@ -376,6 +380,9 @@ mod tests {
         assert_eq!(field_span(line, "ar"), "عربي");
         assert_eq!(field_span(line, "en"), "the text");
         assert_eq!(field_span(line, "bn"), "বাংলা");
+        // The raw Bangla after the cleaned is not part of it.
+        let raw = r#"{"n":"1","ar":"عربي","en":"the text","bn":"বাংলা","bn_raw":"শিরোনাম ১. বাংলা","book":1}"#;
+        assert_eq!(field_span(raw, "bn"), "বাংলা");
         // A collection with no Bangla answers nothing rather than the next field.
         let no_bn = r#"{"n":"1","ar":"عربي","en":"the text"}"#;
         assert_eq!(field_span(no_bn, "bn"), "");
