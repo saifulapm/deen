@@ -17,6 +17,8 @@
 #   words/words.json                the per-word file scripts/fetch-words built, kept as built
 #   words/quranwbw-bn.json          each word's Bangla meaning, "s" -> "a" -> [[word, ...]]
 #   duas/hisn.json                  the dua file scripts/fetch-duas built, kept as built
+#   duas/dua-api/duadetails.csv     the Bangla Hisnul Muslim's segments, dua-api's layout
+#   dua-join.toml                   each dua's segments in that book, and its chapters' Bangla names
 #
 # THE ARABIC IS TANZIL'S, NOT alquran.cloud's, and the choice is forced by the
 # two things that index into it:
@@ -44,7 +46,7 @@ tmp=$(mktemp -d -p "$out" .build-XXXXXX)
 trap 'rm -rf "$tmp"' EXIT
 
 python3 -I - "$src" "$tmp" <<'PY'
-import json, re, sys, collections, tomllib
+import csv, json, re, sys, collections, tomllib
 src, tmp = sys.argv[1], sys.argv[2]
 
 def stop(msg):
@@ -181,13 +183,66 @@ for ref, ayah in words.items():
         w["bn"] = m
 with open(f"{tmp}/words.json", "w", encoding="utf-8") as f:
     json.dump(words, f, ensure_ascii=False, separators=(",", ":"))
-PY
 
 # Hisn al-Muslim is kept as scripts/fetch-duas built it, since one of the two
-# copies that build checked against is gone; it only has to parse.
-python3 -I -c 'import json, sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$src/duas/hisn.json" \
-  || { echo "build-data: duas/hisn.json is not JSON" >&2; exit 1; }
-cp "$src/duas/hisn.json" "$tmp/duas.json"
+# copies that build checked against is gone. Each dua gains the Bangla
+# Hisnul Muslim where dua-join.toml maps it to that book's segments: their
+# meanings and pronunciations joined with a space, and the reference line its
+# first footnote mark names. The book's footnote marks go and its newlines and
+# no-break spaces read as spaces; its asides in brackets stay. A segment with
+# no pronunciation, and a dua the book lacks, hand their Arabic to `deen pron`
+# below, which writes bn_pron from the parts left here.
+try:
+    join = tomllib.load(open(f"{src}/dua-join.toml", "rb"))
+except FileNotFoundError:
+    stop("the sources have no dua-join.toml, so they are older than this deen")
+book = json.load(open(f"{src}/duas/hisn.json", encoding="utf-8"))
+segments = collections.defaultdict(list)
+for r in csv.DictReader(open(f"{src}/duas/dua-api/duadetails.csv", encoding="utf-8", newline="")):
+    if r["book_id"] == "1":
+        segments[int(r["dua_global_id"])].append(r)
+
+FOOTNOTE = re.compile(r"\s*\[[০-৯]+\]")
+NAMED = re.compile(r"\[([০-৯]+)\]")
+def bangla(text, id):
+    text = " ".join(FOOTNOTE.sub("", text).split())
+    if LEFT.search(text):
+        stop(f"dua {id}'s Bangla still holds a footnote mark after stripping: {text!r}")
+    return text
+
+names = join.get("chapters", {})
+for c in book["chapters"]:
+    c["bn"] = str(names.get(str(c["n"]), "")).strip()
+    if not c["bn"]:
+        stop(f"dua-join.toml has no Bangla name for chapter {c['n']}")
+for d in book["duas"]:
+    j = join.get("dua", {}).get(d["id"])
+    if j is None:
+        stop(f"dua-join.toml does not name dua {d['id']}")
+    rows = []
+    for g, i in j.get("segments", []):
+        if i >= len(segments[g]):
+            stop(f"dua-join.toml maps dua {d['id']} to segment {g}:{i}, which the Bangla Hisnul Muslim lacks")
+        rows.append((g, segments[g][i]))
+    if not rows:
+        d["bn_pron"] = [{"ar": d["ar"]}]
+        continue
+    d["bn"] = " ".join(t for t in (bangla(r["translations"], d["id"]) for _, r in rows) if t)
+    if not d["bn"]:
+        del d["bn"]
+    d["bn_pron"] = [{"bn": bangla(r["transliteration"], d["id"])} if r["transliteration"].strip() else {"ar": r["arabic"]} for _, r in rows]
+    # A dua-api dua's reference holds one line per footnote, often on another
+    # of its segments; the line is the one the first mark in the meaning, then
+    # in the narration, names, else the first.
+    mark = next(((g, m.group(1)) for f in ("translations", "bottom") for g, r in rows for m in [NAMED.search(r[f])] if m), None)
+    g, n = mark or (rows[0][0], None)
+    lines = [l.strip() for r in segments[g] for l in r["reference"].splitlines() if l.strip()]
+    line = next((l for l in lines if n and l.startswith(f"[{n}]")), lines[0] if lines else "")
+    if line:
+        d["bn_ref"] = bangla(line, d["id"])
+with open(f"{tmp}/duas.json", "w", encoding="utf-8") as f:
+    json.dump(book, f, ensure_ascii=False, separators=(",", ":"))
+PY
 
 # The pronunciation is deen's own engine, so it runs on the files above before
 # any of them lands; a code point it has no rule for stops the build here.

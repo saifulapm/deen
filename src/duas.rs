@@ -19,6 +19,10 @@ pub struct Chapter {
     pub en: String,
     /// Arabic chapter title.
     pub ar: String,
+    /// The Bangla Hisnul Muslim's chapter name, from deen-data's
+    /// dua-join.toml. Absent in data built before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bn: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -37,6 +41,17 @@ pub struct Dua {
     /// Every dua has one but the chapter opener, whose footnote is "ibid.".
     #[serde(rename = "ref")]
     pub reference: String,
+    /// The Bangla Hisnul Muslim's meaning, for the 230 duas it covers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bn: Option<String>,
+    /// How the Arabic is read, in Bangla letters: that book's own where it has
+    /// one, else written by `pron` when the data is built. Absent only in data
+    /// built before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bn_pron: Option<String>,
+    /// That book's reference line, for the duas it covers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bn_ref: Option<String>,
     /// How many times to say it, when the joined dataset says more than once.
     /// Absent means the book did not put a number on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

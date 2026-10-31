@@ -807,8 +807,8 @@ fn particle_wasl(w: &str) -> String {
     c.into_iter().collect()
 }
 
-/// Give every ayah of `dir`'s quran.json and every word of its words.json
-/// their `bn_pron`, writing both files back. `scripts/build-data` runs this
+/// Give every ayah of `dir`'s quran.json, every word of its words.json and
+/// every dua of its duas.json their `bn_pron`, writing the files back. `scripts/build-data` runs this
 /// on the files it has just written, before they replace the old ones.
 pub fn write_data(dir: &Path) -> Result<()> {
     let read = |name: &str| -> Result<Value> {
@@ -839,7 +839,29 @@ pub fn write_data(dir: &Path) -> Result<()> {
         }
     }
 
-    for (name, v) in [("quran.json", &quran), ("words.json", &words)] {
+    // build-data leaves each dua's pronunciation as its parts: the Bangla
+    // book's own, or Arabic for the engine to read.
+    let mut duas = read("duas.json")?;
+    for d in duas["duas"].as_array_mut().context("duas.json has no duas")? {
+        let at = format!("dua {}", d["id"].as_str().unwrap_or_default());
+        let mut parts = Vec::new();
+        for p in d["bn_pron"].as_array().into_iter().flatten() {
+            let part = match (p["bn"].as_str(), p["ar"].as_str()) {
+                (Some(bn), _) => bn.to_string(),
+                (None, Some(ar)) => dua(ar).map_err(|e| no_rule(at.clone(), e))?,
+                _ => return Err(anyhow!("{at}'s pronunciation has a part with no text")),
+            };
+            if !part.is_empty() {
+                parts.push(part);
+            }
+        }
+        if parts.is_empty() {
+            return Err(anyhow!("{at} reads as nothing"));
+        }
+        d["bn_pron"] = Value::from(parts.join(" "));
+    }
+
+    for (name, v) in [("quran.json", &quran), ("words.json", &words), ("duas.json", &duas)] {
         fs::write(dir.join(name), v.to_string()).with_context(|| format!("cannot write {name}"))?;
     }
     Ok(())

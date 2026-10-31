@@ -29,7 +29,10 @@ Al-Bukhari 1/181, Muslim 1/419.
 here writes religious content.** The 268 duas in 132 chapters are Hisn
 al-Muslim (Sa'id bin Ali bin Wahf Al-Qahtani); `scripts/fetch-duas` installs
 them only if two independently fetched copies of the page agree field for
-field, and refuses to install anything if they do not.
+field, and refuses to install anything if they do not. Where the Bangla
+Hisnul Muslim has a dua, 230 of the 268, the dua carries that book's
+meaning, pronunciation and reference as `bn`, `bn_pron` and `bn_ref`; the
+rest read in deen's own pronunciation alone.
 
 And it searches the hadith corpus — ten collections, 36,512 narrations, in
 Arabic, English and Bangla, entirely offline:

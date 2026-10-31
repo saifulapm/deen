@@ -70,11 +70,11 @@ enum Cmd {
         #[command(subcommand)]
         what: HifzCmd,
     },
-    /// Give every ayah and word in a data directory its Bangla pronunciation.
+    /// Give every ayah, word and dua in a data directory its Bangla pronunciation.
     ///
-    /// `scripts/build-data` runs it on the quran.json and words.json it has
-    /// just written; it stops, naming the ayah and the character, on a code
-    /// point the pronunciation has no rule for.
+    /// `scripts/build-data` runs it on the quran.json, words.json and
+    /// duas.json it has just written; it stops, naming the ayah or the dua
+    /// and the character, on a code point the pronunciation has no rule for.
     Pron {
         dir: std::path::PathBuf,
         /// Print a draft of deen-data's surahs-bn.toml from the surahs'
