@@ -228,6 +228,23 @@ fn field_span<'a>(line: &'a str, key: &str) -> &'a str {
     &rest[..end]
 }
 
+/// Bangla as one spelling: য়, ড় and ঢ় come as one code point or as the letter
+/// and its nukta, and a keyboard may add ZWNJ or ZWJ, so all are made the same
+/// on both sides of a search.
+fn fold_bengali(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\u{9DC}' => out.push_str("\u{9A1}\u{9BC}"),
+            '\u{9DD}' => out.push_str("\u{9A2}\u{9BC}"),
+            '\u{9DF}' => out.push_str("\u{9AF}\u{9BC}"),
+            '\u{200C}' | '\u{200D}' => {}
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// Reduce a query to the runs of text that must all appear.
 ///
 /// EVERY WORD MUST APPEAR, not the whole string as one run. A corpus search
@@ -241,7 +258,7 @@ fn terms_of(query: &str, script: &Script) -> Vec<String> {
         // typed without harakat finds the vowelled text it was copied from.
         Script::Arabic => normalise::phrase(s),
         Script::Latin => s.to_lowercase(),
-        Script::Bengali => s.to_string(),
+        Script::Bengali => fold_bengali(s),
     };
     let quoted = query.len() > 1 && query.starts_with('"') && query.ends_with('"');
     let raw = if quoted {
@@ -360,7 +377,7 @@ pub fn search(query: &str, only: Option<&str>, limit: usize) -> Result<Search> {
             let hay = match script {
                 Script::Arabic => normalise::phrase(field_span(&line, "ar")),
                 Script::Latin => field_span(&line, "en").to_lowercase(),
-                Script::Bengali => field_span(&line, "bn").to_string(),
+                Script::Bengali => fold_bengali(field_span(&line, "bn")),
             };
             // Sum the mentions, but only once every term is present: a
             // narration that says "patience" nine times and never says

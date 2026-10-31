@@ -49,9 +49,14 @@ DIGIT = re.compile("[0-9০-৯]")
 # `রেওয়ায়ত ১০৬. `, which is neither sunnah.com's nor the book's.
 YA = "(?:\u09DF|\u09AF\u09BC)"
 MALIK_NUMBER = re.compile(rf"^\s*রেও{YA}া{YA}া?ত\s*[০-৯]+\s*\.?\s+")
-SPOKEN = re.compile("বলেন|বলেছেন|বললেন|বলতে|বর্ণিত|বর্ণনা|[\u0600-\u06ff]")
+ARABIC = re.compile("[\u0600-\u06ff]")
+SPOKEN = re.compile("বলেন|বলেছেন|বললেন|বলতে|বর্ণিত|বর্ণনা|শুনেছেন|পড়তে|[\u0600-\u06ff]")
 NARRATOR_DOTS = re.compile(r"\((রহ[ঃ.:]?|রাহ[ঃ.:]?|রহিঃ|রহিমাহুম[াু]ল্লাহ)\)\s*\.{5}")
-PUBLISHER = re.compile("প্রকাশনী|ফাউন্ডেশন|সেন্টার")
+PUBLISHER = re.compile(r"প্রকাশনী|ফাউন্ডেশন|সেন্টার|আ\.প্র|ই\.ফা")
+# A grade remark is the text's own, wherever the edition put it.
+GRADE = re.compile("হাসান|সহীহ(?!্)|যঈফ|য[’']ঈফ|দুর্বল|গারীব|মাওযূ")
+# A bare source label, `[সহীহ্ মুসলিমঃ]`, as Nawawi's edition writes one.
+SOURCE_LABEL = re.compile(r"(?:সহীহ্?\s*(?:আল-)?)?(?:বুখারী|মুসলিম|তিরমিযী|আবূ দাউদ|ইবনে মাজাহ|নাসাঈ)ঃ")
 NUMBERS_ONLY = re.compile(r"[0-9০-৯/,;:ঃ.\-–ও\s]*")
 
 def reference(m):
@@ -60,8 +65,10 @@ def reference(m):
     translator wrote into the narration, and parentheses like `(২ বার)` or
     `(রাঃ)`, are the text and stay."""
     inside = m.group(0)[1:-1].strip()
+    if GRADE.search(inside):
+        return m.group(0)
     if m.group(0)[0] == "[":
-        drop = DIGIT.search(inside) or inside.endswith("ঃ")
+        drop = DIGIT.search(inside) or SOURCE_LABEL.fullmatch(inside)
     else:
         drop = (PUBLISHER.search(inside) or (DIGIT.search(inside) and NUMBERS_ONLY.fullmatch(inside))
                 or (DIGIT.search(inside) and re.search("হাঃ|দ্রষ্টব্য", inside))
@@ -83,7 +90,7 @@ def unmatched_brackets_gone(t):
     return "".join(" " if i in gone else ch for i, ch in enumerate(t))
 
 def clean(text, n):
-    """The narration alone out of a Bangla edition's entry (ruling 1Q6R0T2W).
+    """The narration alone out of a Bangla edition's entry.
 
     The editions prefix the chapter's heading and the narration's number, open
     with a stub of the chain and close with a note on another chain, and carry
@@ -92,7 +99,13 @@ def clean(text, n):
     t = text.strip()
     # The heading ends at the narration's own number, `৬১১৪. `; a different
     # number in the text is never a heading's end.
-    marker = re.search(r"(?:^|(?<=\s))" + re.escape(n.translate(BN_DIGITS)) + r"\s*\.\s", t)
+    number = re.escape(n.translate(BN_DIGITS))
+    marker = re.search(r"(?:^|(?<=\s))" + number + r"\s*\.\s", t)
+    # Some Bukhari headings end the number with `।`, `,` or `:.`; with these a
+    # heading is known by its Arabic.
+    if not marker:
+        marker = next((m for m in re.finditer(r"(?<=\s)" + number + r"\s*(?:।|,|:\.?)\s", t)
+                       if ARABIC.search(t[:m.start()]) and t.count("(", 0, m.start()) == t.count(")", 0, m.start())), None)
     if marker:
         t = t[marker.end():]
     else:
@@ -104,10 +117,13 @@ def clean(text, n):
     if stub >= 0 and (t.find("।") < 0 or stub < t.find("।")) and not SPOKEN.search(
             re.sub(r"\([^()]*\)|\[[^\[\]]*\]", "", t[:stub])):
         t = t[stub:].lstrip(". ")
-    t = re.sub(r"\[[^\[\]]*\]|\([^()]*\)", reference, t)
+    t = re.sub(r"\[[^\[\]]*\]|\((?:[^()]|\([^()]*\))*\)", reference, t)
     t = unmatched_brackets_gone(t)
     # A chain note is the last sentence, a narrator then `.....`; the same
     # dots elsewhere in the narration mark a passage left out, and stay.
+    # Ibn Majah follows a narration with `১/৪৪৬।`, its own number, and a
+    # second chain for it.
+    t = re.sub(r"\s[০-৯]+/" + number + r"\s*।+\s.*$", "", t, flags=re.S)
     t = t.rstrip()
     last = max(t.rfind(p, 0, len(t) - 1) for p in "।?!")
     if last >= 0 and NARRATOR_DOTS.search(t[last:]):

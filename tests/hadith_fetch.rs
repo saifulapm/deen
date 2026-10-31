@@ -94,7 +94,11 @@ fn fetch_joins_the_snapshot_a_collection_at_a_time_and_the_corpus_answers_a_sear
     let total = snapshot(&root.join("deen-data"));
     assert_eq!(state(&root), "missing");
 
+    // An older deen's cut download, which nothing reads now.
+    fs::create_dir_all(root.join("hadith/.download")).unwrap();
+    fs::write(root.join("hadith/.download/ara-bukhari.min.json.part"), "{").unwrap();
     let ev = fetched(&root);
+    assert!(!root.join("hadith/.download").exists());
     assert_eq!(ev[0], json!({ "event": "progress", "done": 0, "total": total, "rate": 0 }));
     let progress: Vec<&Value> = ev.iter().filter(|e| e["event"] == "progress").collect();
     assert_eq!(progress.len(), 1 + COLLECTIONS.len());

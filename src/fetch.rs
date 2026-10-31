@@ -28,7 +28,7 @@ const LANGS: [&str; 3] = ["ara", "eng", "ben"];
 const JOIN: &str = include_str!("../scripts/join-hadith");
 /// What join-hadith writes. A corpus of another format was joined by an older
 /// deen, so status reads it as missing and the next open rebuilds it.
-const FORMAT: u64 = 3;
+const FORMAT: u64 = 4;
 
 /// The deen-data snapshot. `DEEN_SOURCES` overrides.
 pub fn sources() -> PathBuf {
@@ -119,6 +119,8 @@ fn run(progress: &mut (u64, u64)) -> Result<()> {
 
     let dir = hadith::dir();
     fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    // What an older deen's cut download left; nothing reads it now.
+    let _ = fs::remove_dir_all(dir.join(".download"));
     let mut py = command("python3")
         .arg("-I")
         .arg("-")

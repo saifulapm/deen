@@ -1,5 +1,5 @@
 //! The corpus joined from the deen-data checkout's real editions (DEEN_SOURCES,
-//! else ../deen-data), held to the narrations the plan names.
+//! else ../deen-data), held to the narrations Deen is known to show.
 
 use std::{
     path::{Path, PathBuf},
@@ -90,7 +90,7 @@ fn bukhari_has_97_named_books_then_the_rest() {
     let books = books["books"].as_array().unwrap();
     assert_eq!(books.len(), 98);
     assert_eq!(books[0], serde_json::json!({ "n": 1, "bn": "ওহীর সূচনা", "en": "Revelation", "count": 7 }));
-    // 311 sit in book 0, 4 of them empty in every language (ruling B8RT511G).
+    // 311 sit in book 0, 4 of them empty in every language.
     assert_eq!(books[97], serde_json::json!({ "n": 0, "bn": "অন্যান্য", "en": "", "count": 307 }));
 }
 
@@ -121,4 +121,32 @@ fn muslims_empty_narrations_are_left_out_of_lists_and_search() {
     assert_eq!(muslim["count"], 7563 - 167);
     let found = deen(&["hadith", "search", "--limit", "100000", "নিয়ত"]);
     assert!(found["hits"].as_array().unwrap().iter().all(|h| h["collection"] != "muslim" || (h["hadith"]["n"] != "1" && h["hadith"]["n"] != "2")));
+}
+
+#[test]
+fn headings_numbered_with_a_danda_or_comma_go() {
+    for (r, start) in [("bukhari:284", "আনাস ইব্\u{200C}নু মালিক"), ("bukhari:509", "আবূ")] {
+        let text = bn(r);
+        assert!(text.starts_with(&split(start)), "{r}: {text}");
+    }
+}
+
+#[test]
+fn references_with_parentheses_inside_and_publisher_initials_go() {
+    assert!(!bn("bukhari:141").contains(&split("আহমাদ ১৯০৮")));
+    assert!(!bn("bukhari:305").contains(&split("আ.প্র.")));
+    assert!(bn("ibnmajah:446").ends_with(&split("খিলাল করেন।")));
+}
+
+#[test]
+fn a_grade_in_brackets_stays() {
+    assert!(bn("nawawi:12").contains(&split("হাসান")));
+}
+
+#[test]
+fn bangla_search_finds_both_spellings() {
+    let one = deen(&["hadith", "search", "--limit", "1", "নি\u{9DF}ত"])["total"].clone();
+    let split_ = deen(&["hadith", "search", "--limit", "1", "নি\u{9AF}\u{9BC}ত"])["total"].clone();
+    assert_eq!(one, split_);
+    assert!(one.as_u64().unwrap() > 38, "{one}");
 }

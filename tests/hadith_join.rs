@@ -106,7 +106,7 @@ fn a_leading_chain_stub_goes_and_so_does_a_bare_danda() {
         Some("আয়িশাহ (রাযিঃ) থেকে বর্ণিত। নম্রতা সুন্দর।")
     );
     assert_eq!(cleaned("। মুগীরাহ (রাঃ) সূত্রে বর্ণিত।[1] হাসান সহীহ।").as_deref(), Some("মুগীরাহ (রাঃ) সূত্রে বর্ণিত। হাসান সহীহ।"));
-    // The ruling names five dots; Nasai's three-dot stub stays.
+    // Only five dots mark a stub; Nasai's three-dot stub stays.
     assert_eq!(cleaned("কুতায়বা (রহঃ) ... আবূ হুরায়রা (রাঃ) থেকে বর্ণিত।").as_deref(), Some("কুতায়বা (রহঃ) ... আবূ হুরায়রা (রাঃ) থেকে বর্ণিত।"));
 }
 
@@ -237,4 +237,62 @@ fn a_hit_carries_its_collections_and_books_bangla_names() {
     assert_eq!(hit["book"], json!({ "n": 1, "bn": "ওহীর সূচনা", "en": "Revelation", "count": 2 }));
     let found = deen(&out, &["hadith", "search", "ষষ্ঠ"]);
     assert_eq!(found["hits"][0]["book"]["bn"], "অন্যান্য");
+}
+
+#[test]
+fn a_heading_ends_at_the_number_however_the_edition_punctuates_it() {
+    for sep in ["।", ",", ":."] {
+        let raw = format!("وَقَالَ عَطَاءٌ يَحْتَجِمُ. ‘আত্বা (রহ.) বলেছেন, পারে। ৫{sep} আনাস (রাঃ) থেকে বর্ণিত।");
+        assert_eq!(cleaned(&raw).as_deref(), Some("আনাস (রাঃ) থেকে বর্ণিত।"), "{sep}");
+    }
+    // A publisher's number inside its parentheses ends no heading.
+    assert_eq!(
+        cleaned("بَاب الْعِلْمِ অধ্যায়। তিনি বলেন। (আধুনিক প্রকাশনীঃ ৫, ইসলামিক ফাউন্ডেশনঃ)").as_deref(),
+        Some("بَاب الْعِلْمِ অধ্যায়। তিনি বলেন।")
+    );
+    // With no heading before it, the number is the text's own.
+    assert_eq!(cleaned("আনাস (রাঃ) বলেন, ৫, ৬ বার।").as_deref(), Some("আনাস (রাঃ) বলেন, ৫, ৬ বার।"));
+}
+
+#[test]
+fn a_cross_reference_list_holding_parentheses_goes() {
+    assert_eq!(
+        cleaned("ক্ষতি করতে পারবে না। (৩২৭১, ৩২৮৩; মুসলিম ত্বলাক (তালাক) অধ্যায়, অনুচ্ছেদ ১৭ হাঃ ১৪৩৪, আহমাদ ১৯০৮)").as_deref(),
+        Some("ক্ষতি করতে পারবে না।")
+    );
+    assert_eq!(cleaned("কা’বার তাওয়াফ করবে না। (আ.প্র. ২৯৪, ই.ফা)").as_deref(), Some("কা’বার তাওয়াফ করবে না।"));
+}
+
+#[test]
+fn ibn_majahs_second_chain_after_the_number_goes() {
+    assert_eq!(
+        cleaned("আঙ্গুলসমূহ খিলাল করেন। ১/৫। আবূল হাসান ইবনু সালামাহ থেকে এ সূত্রে উপরোক্ত হাদীসের অনুরূপ বর্ণিত হয়েছে।").as_deref(),
+        Some("আঙ্গুলসমূহ খিলাল করেন।")
+    );
+    assert_eq!(cleaned("আয়াত ১৩/৭০ পড়লেন। তিনি বললেন।").as_deref(), Some("আয়াত ১৩/৭০ পড়লেন। তিনি বললেন।"));
+}
+
+#[test]
+fn bangla_search_finds_a_word_however_its_letters_are_typed() {
+    let out = join("fold", &[(1, "কাজ নি\u{9DF}তের উপর।"), (2, "কাজ নি\u{9AF}\u{9BC}তের উপর।")]);
+    for q in ["নি\u{9DF}ত", "নি\u{9AF}\u{9BC}ত"] {
+        assert_eq!(deen(&out, &["hadith", "search", q])["total"], 2, "{q:?}");
+    }
+}
+
+#[test]
+fn a_bracket_holding_a_grade_or_the_texts_own_words_stays() {
+    assert_eq!(
+        cleaned("কথা বলবে। [হাদীসটি হাসান। তিরমিযীঃ ২৩১৮, ইবনে মাজাহঃ]").as_deref(),
+        Some("কথা বলবে। [হাদীসটি হাসান। তিরমিযীঃ ২৩১৮, ইবনে মাজাহঃ]")
+    );
+    assert_eq!(
+        cleaned("তিনি বলেন। [নবী সাল্লাল্লাহু আলাইহি ওয়াসাল্লাম আরো বলেনঃ] হজ্জ কর।").as_deref(),
+        Some("তিনি বলেন। [নবী সাল্লাল্লাহু আলাইহি ওয়াসাল্লাম আরো বলেনঃ] হজ্জ কর।")
+    );
+    assert_eq!(
+        cleaned("পানি। (তিরমিযী হাঃ ১৪৬, ইমাম তিরমিযী বলেন, এ হাদীসটি হাসান সহীহ)").as_deref(),
+        Some("পানি। (তিরমিযী হাঃ ১৪৬, ইমাম তিরমিযী বলেন, এ হাদীসটি হাসান সহীহ)")
+    );
+    assert_eq!(cleaned("হাদীস। [বুখারীঃ ৮, মুসলিমঃ]").as_deref(), Some("হাদীস।"));
 }
