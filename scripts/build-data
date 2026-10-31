@@ -139,7 +139,10 @@ for entry in json.load(open(f"{src}/quran/tajweed.json", encoding="utf-8")):
             rules.append(r)
         tajweed[ref].append([start, end, rule_id[r]])
 
-names = tomllib.load(open(f"{src}/surahs-bn.toml", "rb")).get("surahs", {})
+try:
+    names = tomllib.load(open(f"{src}/surahs-bn.toml", "rb")).get("surahs", {})
+except FileNotFoundError:
+    stop("the sources have no surahs-bn.toml, so they are older than this deen")
 for n in range(1, 115):
     if not str(names.get(str(n), "")).strip():
         stop(f"surahs-bn.toml has no Bangla name for surah {n}")

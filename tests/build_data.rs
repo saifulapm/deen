@@ -269,3 +269,16 @@ fn a_surah_with_no_bangla_name_stops_the_build() {
     assert!(!r.status.success());
     assert!(String::from_utf8_lossy(&r.stderr).contains("surah 57"), "{}", String::from_utf8_lossy(&r.stderr));
 }
+
+#[test]
+fn sources_without_the_surah_names_stop_the_build_saying_so() {
+    let dir = scratch("no-names");
+    let (src, out) = (dir.join("src"), dir.join("out"));
+    sources(&src, &[]);
+    fs::remove_file(src.join("surahs-bn.toml")).unwrap();
+    let r = build(&src, &out);
+    assert!(!r.status.success());
+    let err = String::from_utf8_lossy(&r.stderr);
+    assert!(err.contains("build-data: the sources have no surahs-bn.toml"), "{err}");
+    assert!(!out.join("quran.json").exists());
+}
