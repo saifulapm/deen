@@ -128,15 +128,16 @@ enum HadithCmd {
     },
     /// One narration: `bukhari:5010`.
     Show { reference: String },
-    /// Download the editions and build the corpus, resuming a cut download.
+    /// Build the corpus from the deen-data snapshot's editions.
     ///
-    /// Prints one JSON event per line: progress, converting, then done or
+    /// Prints one JSON event per line: progress per collection, then done or
     /// error. The output is the same with or without --json.
     Fetch {
         #[arg(long)]
         json: bool,
     },
-    /// Whether the corpus is missing, partial or ready, without the network.
+    /// Whether the corpus is ready, or missing: never built, or built by an
+    /// older deen or from another deen-data snapshot.
     Status,
 }
 

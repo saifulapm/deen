@@ -21,8 +21,10 @@ fn scratch(name: &str) -> PathBuf {
 /// Arabic and English are placeholders.
 fn join(name: &str, bangla: &[(u32, &str)]) -> PathBuf {
     let root = scratch(name);
-    let (ed, out) = (root.join("editions"), root.join("hadith"));
+    let (src, out) = (root.join("deen-data"), root.join("hadith"));
+    let ed = src.join("hadith");
     fs::create_dir_all(&ed).unwrap();
+    fs::write(src.join("manifest.toml"), "").unwrap();
     fs::create_dir_all(&out).unwrap();
     let edition = |text: &dyn Fn(u32, &str) -> String| {
         let hadiths: Vec<Value> = bangla
@@ -35,7 +37,7 @@ fn join(name: &str, bangla: &[(u32, &str)]) -> PathBuf {
     fs::write(ed.join("eng-bukhari.min.json"), edition(&|n, _| format!("Narration {n}"))).unwrap();
     fs::write(ed.join("ben-bukhari.min.json"), edition(&|_, bn| bn.to_string())).unwrap();
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/join-hadith");
-    let run = Command::new("python3").arg("-I").arg(script).arg(&ed).arg(&out).arg("0123456789ab").arg("bukhari").output().unwrap();
+    let run = Command::new("python3").arg("-I").arg(script).arg(&src).arg(&out).arg("2").arg("bukhari").output().unwrap();
     assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
     out
 }

@@ -1,7 +1,7 @@
 //! The hadith corpus, on disk, searched by streaming rather than by parsing.
 //!
 //! Ten collections in Arabic, English and Bangla — about 36,000 narrations and
-//! 118 MB — installed once by `scripts/fetch-hadith` as one JSONL file per
+//! 118 MB — joined once by `deen hadith fetch` into one JSONL file per
 //! collection. THE SIZE IS WHAT SHAPES THIS MODULE. The Quran file and the dua
 //! file are read whole and answered in one call; that pattern dies here, so
 //! there is no `hadith list` and nothing ever deserialises the corpus. A search

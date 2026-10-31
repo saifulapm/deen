@@ -21,7 +21,7 @@ fn corpus() -> &'static Path {
         let _ = std::fs::remove_dir_all(&out);
         std::fs::create_dir_all(&out).unwrap();
         let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/join-hadith");
-        let run = Command::new("python3").arg("-I").arg(script).arg(sources.join("hadith")).arg(&out).arg("df57907be35291c91ad6a6691180e22ca9920784").arg(COLLECTIONS).output().unwrap();
+        let run = Command::new("python3").arg("-I").arg(script).arg(&sources).arg(&out).arg("2").arg(COLLECTIONS).output().unwrap();
         assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
         out
     })

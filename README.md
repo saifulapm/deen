@@ -79,9 +79,11 @@ Then the data:
 # works offline after.
 scripts/build-data <sources> ~/.local/share/deen
 
-# The hadith corpus: ten collections in three languages, from a pinned commit
-# of fawazahmed0/hadith-api (Unlicense). 104 MB, a few minutes, once.
-scripts/fetch-hadith ~/.local/share/deen/hadith
+# The hadith corpus: ten collections in three languages, joined from the
+# editions in <sources>/hadith (a pinned commit of fawazahmed0/hadith-api,
+# Unlicense), with the Bangla book names from <sources>/hadith-books-bn.toml.
+# Seconds, once; Deen runs it at its first open.
+DEEN_SOURCES=<sources> deen hadith fetch
 ```
 
 ## Configuration
@@ -93,6 +95,7 @@ Environment overrides, all optional:
 | `DEEN_DATA` | the Quran JSON (default `~/.local/share/deen/quran.json`) |
 | `DEEN_DUAS` | the duas JSON (default `~/.local/share/deen/duas.json`) |
 | `DEEN_HADITH` | the hadith corpus directory (default `~/.local/share/deen/hadith`) |
+| `DEEN_SOURCES` | the deen-data snapshot the hadith corpus is joined from (default `~/.local/share/deen-data`) |
 
 ## Licence
 
